@@ -1,0 +1,59 @@
+{
+  "name": "@rizias/tt-stand",
+  "version": "0.1.0",
+  "description": "Read-only CLI for investigating test environments: cluster logs, HTTP traffic parsing, token disclosure, Kubernetes state, image-to-commit provenance, honest completeness reporting",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "tt-stand": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "docs",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "node scripts/clean.mjs && tsc",
+    "lint": "eslint . --max-warnings 0 --prune-suppressions",
+    "knip": "knip",
+    "sizes": "node scripts/size-check.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "check": "npm run typecheck && npm run lint && npm run knip && npm run sizes && npm test && npm run build",
+    "version": "node scripts/changelog-release.mjs && node scripts/skill-version.mjs",
+    "prepare": "lefthook install",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check"
+  },
+  "dependencies": {
+    "@kubernetes/client-node": "^2.0.0",
+    "update-notifier": "^7.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/update-notifier": "^6.0.8",
+    "eslint": "^10.9.1",
+    "knip": "^6.34.0",
+    "lefthook": "^2.1.12",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.69.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "cli",
+    "logs",
+    "victorialogs",
+    "grafana",
+    "kubernetes",
+    "read-only",
+    "qa",
+    "triage"
+  ]
+}

@@ -1,0 +1,13 @@
+dist/
+node_modules/
+*.log
+.env
+
+# Глобальный ~/.gitignore_global глотает эти файлы: specs/, AGENTS.md, CLAUDE.md.
+# Репозиторный .gitignore перебивает глобальный, поэтому возвращаем их явно.
+!AGENTS.md
+!CLAUDE.md
+!openspec/specs/
+!openspec/specs/**
+!openspec/changes/**/specs/
+!openspec/changes/**/specs/**

@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Semver bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm install -g npm@latest
+      - name: Commit identity
+        run: |
+          git config user.name "rizias"
+          git config user.email "42223893+rizias@users.noreply.github.com"
+      - run: npm version ${{ inputs.bump }}
+      - run: git push --follow-tags
+      - run: npm publish

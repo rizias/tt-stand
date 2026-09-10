@@ -1,0 +1,34 @@
+schema: spec-driven
+
+context: |
+  Language: ru
+  All artifacts must be written in ru.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+
+  Продукт: tt-stand — консольный инструмент только для чтения. Отвечает на вопросы
+  о состоянии и истории тестовых окружений: логи кластера, поды и события, соответствие
+  выкаченного образа коммиту. Потребители — QA-инженер и агент (Claude Code, Codex).
+
+  Стек: TypeScript / Node. Python в проекте не используется.
+
+  Действующие требования — openspec/specs. Правила работы — AGENTS.md.
+  Требования формулируются проверяемо: пороги и размеры называются числом
+  с единицей измерения.
+
+rules:
+  proposal:
+    - Раздел Impact обязателен
+  tasks:
+    - Одна задача — один проверяемый шаг
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
