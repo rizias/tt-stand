@@ -45,10 +45,16 @@
   подавления, руками файл не правится.
 - Исходник — не длиннее 300 строк, тест — 500. Проверяет `node scripts/size-check.mjs`.
 - Мёртвого кода нет: `knip` в `npm run check` это проверяет.
-- Проверки в `scripts/`, `eslint.config.js` и `src/skills/updater*.ts` приходят из каркаса
-  ship-cli: правь их там, а не здесь.
+- `scripts/`, `eslint.config.js` и `src/skills/updater*.ts` — копии общего шаблона,
+  локально не правятся.
 
 ## Ведение работ
 
 Через OpenSpec (схема `spec-driven`). Артефакты обязаны проходить валидацию OpenSpec.
 Спецификации — в `openspec/specs/`, изменения — в `openspec/changes/`.
+
+## Выпуск
+
+Записи копятся в `CHANGELOG.md` в разделе Unreleased. Выпуск — Actions → Release →
+patch/minor/major. Дальше CI сам проверяет, поднимает версию, ставит метку, публикует
+в npm и создаёт запись в GitHub Releases.

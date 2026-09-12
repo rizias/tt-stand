@@ -35,5 +35,14 @@ jobs:
           git config user.name "rizias"
           git config user.email "42223893+rizias@users.noreply.github.com"
       - run: npm version ${{ inputs.bump }}
+      - name: Release notes
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          awk -v head="## [$version] " 'index($0, head) == 1 { found = 1; next } found && /^## \[/ { exit } found { print }' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md" || { echo "CHANGELOG.md: раздел [$version] пуст" >&2; exit 1; }
+          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
       - run: git push --follow-tags
       - run: npm publish
+      - run: gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+        env:
+          GH_TOKEN: ${{ github.token }}

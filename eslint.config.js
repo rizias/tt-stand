@@ -36,7 +36,7 @@ export const ownerPaths = [];
 
 export function buildConfig(ownerPaths) {
   return tseslint.config(
-    { ignores: ['dist/**', 'coverage/**'] },
+    { ignores: ['dist/**', 'coverage/**', '.claude/**'] },
     ...tseslint.configs.recommended,
     {
       linterOptions: { noInlineConfig: true },

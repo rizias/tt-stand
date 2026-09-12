@@ -17,7 +17,7 @@
 |---|---|
 | `src/cli.ts`, `src/cli/` | разбор аргументов, выбор команды, конверт отказа |
 | `src/commands/` | по файлу на команду: `logs`, `env`, `k8s`, `image`, `token`, `configInit`, `init`, `update` |
-| `src/skills/` | мастерская установки скилла из ship-cli (`updater*.ts`) и её подключение (`setup.ts`) |
+| `src/skills/` | установка скилла (`updater*.ts` — копия общего шаблона, локально не правится) и её подключение (`setup.ts`) |
 | `src/config.ts`, `src/credentials.ts`, `src/paths.ts` | файл конфигурации, доступы к Grafana, раскрытие путей |
 | `src/grafana.ts` | HTTP к Grafana и построчный разбор ответа по мере поступления |
 | `src/environment.ts` | определение namespace записи и сводка по окружениям |
