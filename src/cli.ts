@@ -48,7 +48,6 @@ async function dispatchLocal(
   if (group === 'init') {
     return await runInitCommand(positionals[1] ?? process.cwd(), values.for);
   }
-  if (group === 'update') return runUpdateCommand();
   if (group === 'config' && action === 'init') {
     return await runConfigInit(resolveConfigPath(values.config), values.force === true);
   }
@@ -115,12 +114,6 @@ async function dispatch(argv: string[]): Promise<ToolResponse | null> {
   );
 }
 
-function failureExitCode(response: ToolResponse): number {
-  if (response.command !== 'update') return 1;
-  const { exitCode } = response.data as { exitCode?: number };
-  return typeof exitCode === 'number' && exitCode !== 0 ? exitCode : 1;
-}
-
 function flagValue(argv: string[], flag: string): string | undefined {
   const prefix = `${flag}=`;
   for (let index = 0; index < argv.length; index += 1) {
@@ -146,6 +139,16 @@ function journalDirectory(argv: string[]): string {
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] !== 'init') keepInstalledSkillsFresh();
+  if (argv[0] === 'update' && !argv.includes('--help') && !argv.includes('-h')) {
+    if (argv.length > 1) {
+      process.stderr.write(`tt-stand: update не принимает аргументов, получено «${argv.slice(1).join(' ')}»
+`);
+      process.exitCode = 1;
+      return;
+    }
+    process.exitCode = runUpdateCommand();
+    return;
+  }
   const human = argv.includes('--human');
   const at = new Date().toISOString();
 
@@ -160,7 +163,7 @@ async function main(): Promise<void> {
     const outcome = writeJournalEntry(directory, argv, response, at, origin, profileName);
     if (outcome.failure !== null) echo.journal = outcome.failure;
     process.stdout.write(`${human ? renderHuman(response) : renderJson(response)}\n`);
-    process.exitCode = response.ok ? 0 : failureExitCode(response);
+    process.exitCode = response.ok ? 0 : 1;
   };
 
   try {

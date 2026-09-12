@@ -27,7 +27,6 @@ export const ERROR_CLASSES = [
   'previous_log_unavailable',
   'git_unavailable',
   'skill_copy_skipped',
-  'update_failed',
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -80,7 +79,6 @@ export const INCOMPLETENESS_REASONS = {
   outOfScopeDropped:
     'часть записей не попала в ответ: их namespace вне области видимости профиля — это не то же самое, что отсутствие событий',
   skillCopySkipped: 'часть копий скилла не поставлена: причины по каждой копии в data.skipped',
-  updateFailed: 'обновление пакета не выполнено: npm завершился с ошибкой',
 } as const;
 
 export type IncompletenessKey = keyof typeof INCOMPLETENESS_REASONS;
