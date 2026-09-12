@@ -1,6 +1,6 @@
 {
   "name": "@rizias/tt-stand",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Read-only CLI for investigating test environments: cluster logs, HTTP traffic parsing, token disclosure, Kubernetes state, image-to-commit provenance, honest completeness reporting",
   "repository": {
     "type": "git",
