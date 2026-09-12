@@ -110,6 +110,7 @@ test('без подтверждения мастерская не создаёт
 });
 
 test('обновление по новому штампу пропускает копию с чужим файлом, которого нет в шаблоне', async () => {
+  changeTemplateStamp('0.1.0');
   await installSkills(options('0.1.0'));
   const foreign = join(destination(), 'new-file.txt');
   writeFileSync(foreign, 'чужой файл', 'utf8');
@@ -129,6 +130,7 @@ test('обновление по новому штампу пропускает �
 });
 
 test('обновление по новому штампу переписывает копию, когда чужого файла нет', async () => {
+  changeTemplateStamp('0.1.0');
   await installSkills(options('0.1.0'));
   changeTemplateStamp('0.2.0');
   const report = refresh('0.2.0');
@@ -140,6 +142,7 @@ test('обновление по новому штампу переписывае
 });
 
 test('обновление сохраняет чужой файл, которого нет в шаблоне, и переписывает копию', async () => {
+  changeTemplateStamp('0.1.0');
   await installSkills(options('0.1.0'));
   const foreign = join(destination(), 'user-file.txt');
   writeFileSync(foreign, 'чужой файл', 'utf8');
