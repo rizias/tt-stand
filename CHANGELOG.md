@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-09-23
+
 ### Added
 
 - Команды `metrics query`, `metrics instant`, `metrics labels`, `metrics series` — чтение метрик через тот же посредник источников данных Grafana, что и логи; настройка профиля `grafana.metricsDatasourceUid` для явного выбора источника.
