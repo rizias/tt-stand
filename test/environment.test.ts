@@ -101,7 +101,7 @@ test('каждый вызов с ingress запрашивает полный к�
         };
       },
     },
-    datasource: { uid: 'fictional-source', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: "default",
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -143,7 +143,7 @@ test('набор без ingress-upstream не вызывает запрос ка
         return { values: [], raw: {} };
       },
     },
-    datasource: { uid: 'fictional-source', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: "default",
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -178,7 +178,7 @@ test('env показывает список в порядке хранилища
         };
       },
     },
-    datasource: { uid: 'fictional-env-source', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional-env-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: "default",
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -222,7 +222,7 @@ test('команда логов получает каталог и размеч�
         raw: {},
       }),
     },
-    datasource: { uid: 'fictional-logs-source', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional-logs-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: "default",
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -262,7 +262,7 @@ test('полный каталог сохраняет планку разметк
         raw: {},
       }),
     },
-    datasource: { uid: 'fictional-coverage-source', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional-coverage-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: "default",
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -301,7 +301,7 @@ test('недоступный каталог не скрывает получен
         throw new Error('вымышленный отказ каталога');
       },
     },
-    datasource: { uid: 'fictional-failing-source', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional-failing-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: "default",
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -353,4 +353,23 @@ test('namespace не совпадает с более длинным имене�
   assert.equal(namespaceFromUpstream('production-api-8000', ['prod']), null);
   assert.equal(namespaceFromUpstream('prod-api-8000', ['prod']), 'prod');
   assert.equal(namespaceFromUpstream('prod', ['prod']), 'prod');
+});
+
+test('env: элемент перечня namespace не объект не роняет команду, строка считается именем', async () => {
+  const context = {
+    client: {
+      fieldValues: async () => ({
+        values: [null, 'fictional-team-03', { value: 'fictional-team-01', hits: 1 }, 7],
+        raw: {},
+      }),
+    },
+    datasource: { uid: 'fictional-env-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
+    profile: 'default',
+    namespaceScope: null,
+  } as unknown as LogsContext;
+
+  const response = await runEnv(context);
+  const data = response.data as { namespaces: string[] };
+  assert.deepEqual(data.namespaces, ['fictional-team-03', 'fictional-team-01']);
+  assert.equal(response.ok, true);
 });

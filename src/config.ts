@@ -37,9 +37,22 @@ export interface LoadedRootConfig {
   raw: Record<string, unknown> | null;
 }
 
+function explicitConfigSource(fromArgument?: string): string | null {
+  if (fromArgument !== undefined) return 'аргументом --config';
+  const fromEnvironment = process.env.TT_STAND_CONFIG;
+  return fromEnvironment ? 'переменной окружения TT_STAND_CONFIG' : null;
+}
+
 export function loadRootConfig(fromArgument?: string): LoadedRootConfig {
   const path = resolveConfigPath(fromArgument);
   if (!existsSync(path)) {
+    const source = explicitConfigSource(fromArgument);
+    if (source !== null) {
+      throw new ToolError(
+        'config_invalid',
+        `Файл конфигурации, заданный ${source}, не найден: ${path}. Значения по умолчанию вместо явно названного файла не подставляются.`,
+      );
+    }
     return { config: { ...DEFAULT_ROOT_CONFIG }, path, exists: false, raw: null };
   }
 

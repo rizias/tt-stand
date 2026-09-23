@@ -11,7 +11,7 @@ const credentials: Credentials = {
   password: 'pass',
   baseUrl: 'https://grafana.example.invalid',
 };
-const datasource: Datasource = { uid: 'ds', name: 'фиктивный источник', candidates: [] };
+const datasource: Datasource = { uid: 'ds', name: 'фиктивный источник', type: 'victoriametrics-logs-datasource', candidates: [] };
 
 function context(namespaceScope: string[] | null): LogsContext {
   return {

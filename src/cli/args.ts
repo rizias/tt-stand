@@ -3,10 +3,14 @@ import { ToolError } from '../errors.ts';
 
 export const USAGE = `tt-stand — чтение логов и состояния тестовых окружений. Только чтение.
 
-  tt-stand logs query  --query <LogsQL> --start <время> --end <время> [--limit N]
+  tt-stand logs query  (--query <LogsQL> | --query-file <путь>) --start <время> --end <время> [--limit N]
   tt-stand logs search --value <значение> [--value ...] --start <время> --end <время> [--limit N]
-  tt-stand logs http [--query <LogsQL> | --value <значение> [--value ...]] --start <время> --end <время> [--limit N]
-  tt-stand logs fields --field <имя поля> --start <время> --end <время> [--query <LogsQL>] [--limit N]
+  tt-stand logs http [--query <LogsQL> | --query-file <путь> | --value <значение> [--value ...]] --start <время> --end <время> [--limit N]
+  tt-stand logs fields --field <имя поля> --start <время> --end <время> [--query <LogsQL> | --query-file <путь>] [--limit N]
+  tt-stand metrics query   (--query <PromQL> | --query-file <путь>) --start <время> --end <время> [--step <шаг>]
+  tt-stand metrics instant (--query <PromQL> | --query-file <путь>) [--time <время>]
+  tt-stand metrics labels  [--label <имя>] [--match <селектор> ...] [--start <время>] [--end <время>]
+  tt-stand metrics series  --match <селектор> [--match ...] [--start <время>] [--end <время>]
   tt-stand token [--value <токен>]
   tt-stand k8s get <ресурс> [--namespace <ns>] [--name <имя>]
   tt-stand k8s log <под> [--namespace <ns>] [--container <имя>] [--previous]
@@ -32,10 +36,15 @@ export const USAGE = `tt-stand — чтение логов и состояния
 
 export const OPTIONS = {
   query: { type: 'string' },
+  'query-file': { type: 'string' },
   value: { type: 'string', multiple: true },
   field: { type: 'string' },
   start: { type: 'string' },
   end: { type: 'string' },
+  step: { type: 'string' },
+  time: { type: 'string' },
+  match: { type: 'string', multiple: true },
+  label: { type: 'string' },
   limit: { type: 'string' },
   config: { type: 'string' },
   profile: { type: 'string' },
@@ -56,6 +65,7 @@ const VALUE_FLAGS = new Set([
   '--end',
   '--value',
   '--query',
+  '--query-file',
   '--field',
   '--limit',
   '--config',
@@ -63,6 +73,10 @@ const VALUE_FLAGS = new Set([
   '--namespace',
   '--name',
   '--container',
+  '--step',
+  '--time',
+  '--match',
+  '--label',
 ]);
 
 const KNOWN_FLAGS = new Set(Object.keys(OPTIONS).map((name) => `--${name}`));
@@ -87,7 +101,7 @@ export function joinNegativeValues(argv: string[]): string[] {
 }
 
 export function required(value: string | undefined, name: string): string {
-  if (value === undefined || value.length === 0) {
+  if (value === undefined) {
     throw new ToolError('bad_request', `Не задан обязательный параметр --${name}.`);
   }
   return value;

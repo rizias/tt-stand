@@ -61,10 +61,17 @@ test('пропущенный параметр даёт bad_request до обра
   const { dir, path } = emptyConfig();
   try {
     const result = await tt(['logs', 'query', '--start', '-1h', '--end', 'now', '--config', path]);
-    const parsed = JSON.parse(result.stdout) as { errorClass: string; error: string };
+    const parsed = JSON.parse(result.stdout) as {
+      errorClass: string;
+      error: string;
+      echo: { query: string | null; start: string | null; end: string | null };
+    };
     assert.equal(parsed.errorClass, 'bad_request');
     assert.match(parsed.error, /--query/);
     assert.equal(result.code, 1);
+    assert.equal(parsed.echo.query, null);
+    assert.equal(parsed.echo.start, '-1h');
+    assert.equal(parsed.echo.end, 'now');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -118,6 +125,29 @@ test('нецелый лимит отвергается', async () => {
   assert.match(parsed.error, /--limit/);
 });
 
+test('нецелый лимит не теряет уже разобранные query, start и end в эхе', async () => {
+  const result = await tt([
+    'logs',
+    'query',
+    '--query',
+    '*',
+    '--start',
+    '-1h',
+    '--end',
+    'now',
+    '--limit',
+    'abc',
+  ]);
+  const parsed = JSON.parse(result.stdout) as {
+    errorClass: string;
+    echo: { query: string | null; start: string | null; end: string | null };
+  };
+  assert.equal(parsed.errorClass, 'bad_request');
+  assert.equal(parsed.echo.query, '*');
+  assert.equal(parsed.echo.start, '-1h');
+  assert.equal(parsed.echo.end, 'now');
+});
+
 test('отсутствующий файл учётных данных доходит до пользователя своим классом', async () => {
   const { dir, path } = emptyConfig();
   try {
@@ -135,6 +165,35 @@ test('отсутствующий файл учётных данных доход
     ]);
     const parsed = JSON.parse(result.stdout) as { errorClass: string };
     assert.equal(parsed.errorClass, 'credentials_missing');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('отказ при чтении учётных данных всё равно называет query, start и end', async () => {
+  const { dir, path } = emptyConfig();
+  try {
+    const result = await tt([
+      'logs',
+      'query',
+      '--query',
+      'phone:*',
+      '--start',
+      '-2d',
+      '--end',
+      'now',
+      '--config',
+      path,
+    ]);
+    const parsed = JSON.parse(result.stdout) as {
+      errorClass: string;
+      echo: { query: string | null; queryFile: string | null; start: string | null; end: string | null };
+    };
+    assert.equal(parsed.errorClass, 'credentials_missing');
+    assert.equal(parsed.echo.query, 'phone:*');
+    assert.equal(parsed.echo.queryFile, null);
+    assert.equal(parsed.echo.start, '-2d');
+    assert.equal(parsed.echo.end, 'now');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -208,6 +267,73 @@ test('значение, похожее на чужой флаг, склеива�
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('--time с отрицательным значением не проглатывается как отдельный флаг', async () => {
+  const { dir, path } = emptyConfig();
+  try {
+    const result = await tt([
+      'metrics',
+      'instant',
+      '--query',
+      'up',
+      '--time',
+      '-1h',
+      '--config',
+      path,
+    ]);
+    assert.match(result.stdout, /credentials_missing/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('metrics query без --query и --query-file — bad_request', async () => {
+  const result = await tt(['metrics', 'query', '--start', '-1h', '--end', 'now']);
+  const parsed = JSON.parse(result.stdout) as { errorClass: string };
+  assert.equal(parsed.errorClass, 'bad_request');
+});
+
+test('metrics query: отказ при чтении учётных данных называет query, start, end и step', async () => {
+  const { dir, path } = emptyConfig();
+  try {
+    const result = await tt([
+      'metrics',
+      'query',
+      '--query',
+      'up',
+      '--start',
+      '-1h',
+      '--end',
+      'now',
+      '--step',
+      '5m',
+      '--config',
+      path,
+    ]);
+    const parsed = JSON.parse(result.stdout) as {
+      errorClass: string;
+      echo: {
+        query: string | null;
+        start: string | null;
+        end: string | null;
+        step: string | null;
+      };
+    };
+    assert.equal(parsed.errorClass, 'credentials_missing');
+    assert.equal(parsed.echo.query, 'up');
+    assert.equal(parsed.echo.start, '-1h');
+    assert.equal(parsed.echo.end, 'now');
+    assert.equal(parsed.echo.step, '5m');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('справка содержит команды metrics', async () => {
+  const result = await tt(['--help']);
+  assert.match(result.stdout, /tt-stand metrics query/);
+  assert.match(result.stdout, /tt-stand metrics series/);
 });
 
 test('конверт отказа сохраняет то, что фактически выполнялось', () => {

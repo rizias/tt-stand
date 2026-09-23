@@ -86,3 +86,78 @@ test('credentialsFile по умолчанию лежит в каталоге п�
   const profile = parseProfile({ grafana: {} }, 'full', PATH, CREDENTIALS_DEFAULT);
   assert.equal(profile.grafana?.credentialsFile, CREDENTIALS_DEFAULT);
 });
+
+test('grafana.metricsDatasourceUid неверного типа даёт config_invalid', () => {
+  assert.throws(
+    () =>
+      parseProfile({ grafana: { metricsDatasourceUid: 7 } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    (error: Error & { errorClass?: string }) =>
+      error.errorClass === 'config_invalid' &&
+      /broken/.test(error.message) &&
+      /grafana\.metricsDatasourceUid/.test(error.message),
+  );
+});
+
+test('grafana.datasourceUid пустой строкой даёт config_invalid, а не «не задано»', () => {
+  assert.throws(
+    () =>
+      parseProfile({ grafana: { datasourceUid: '' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    (error: Error & { errorClass?: string }) =>
+      error.errorClass === 'config_invalid' &&
+      /broken/.test(error.message) &&
+      /grafana\.datasourceUid/.test(error.message),
+  );
+});
+
+test('grafana.metricsDatasourceUid пустой строкой даёт config_invalid', () => {
+  assert.throws(
+    () =>
+      parseProfile(
+        { grafana: { metricsDatasourceUid: '' } },
+        'broken',
+        PATH,
+        CREDENTIALS_DEFAULT,
+      ),
+    (error: Error & { errorClass?: string }) =>
+      error.errorClass === 'config_invalid' &&
+      /broken/.test(error.message) &&
+      /grafana\.metricsDatasourceUid/.test(error.message),
+  );
+});
+
+test('grafana.datasourceUid значением "." даёт config_invalid', () => {
+  assert.throws(
+    () => parseProfile({ grafana: { datasourceUid: '.' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    (error: Error & { errorClass?: string }) =>
+      error.errorClass === 'config_invalid' &&
+      /broken/.test(error.message) &&
+      /grafana\.datasourceUid/.test(error.message),
+  );
+});
+
+test('grafana.metricsDatasourceUid значением ".." даёт config_invalid', () => {
+  assert.throws(
+    () =>
+      parseProfile(
+        { grafana: { metricsDatasourceUid: '..' } },
+        'broken',
+        PATH,
+        CREDENTIALS_DEFAULT,
+      ),
+    (error: Error & { errorClass?: string }) =>
+      error.errorClass === 'config_invalid' &&
+      /broken/.test(error.message) &&
+      /grafana\.metricsDatasourceUid/.test(error.message),
+  );
+});
+
+test('grafana.metricsDatasourceUid читается независимо от datasourceUid', () => {
+  const profile = parseProfile(
+    { grafana: { datasourceUid: 'logs', metricsDatasourceUid: 'metrics' } },
+    'full',
+    PATH,
+    CREDENTIALS_DEFAULT,
+  );
+  assert.equal(profile.grafana?.datasourceUid, 'logs');
+  assert.equal(profile.grafana?.metricsDatasourceUid, 'metrics');
+});

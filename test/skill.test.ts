@@ -109,6 +109,14 @@ test('скилл направляет проверку заполненност�
   assert.match(skill, /используй `tt-stand config\s+profiles`: команда отвечает признаком заполненности/iu);
 });
 
+test('процедура «Кто нагружает окружение» группирует ряд по namespace и поду вместе', () => {
+  const section = skill.split('## Кто нагружает окружение')[1]?.split('\n## ')[0] ?? '';
+  assert.notEqual(section, '', 'раздел «Кто нагружает окружение» не найден');
+  assert.match(section, /by \(namespace, pod\)/);
+  assert.doesNotMatch(section, /by \(pod\)/);
+  assert.doesNotMatch(section, /stand-7/);
+});
+
 test('в скилле только вымышленные имена окружений и хостов', () => {
   const upstreamShaped = skill.match(UPSTREAM_SHAPED) ?? [];
   const foreign = upstreamShaped.filter((name) => !name.startsWith('fictional-'));

@@ -7,7 +7,7 @@ import {
   UNKNOWN_ENVIRONMENT,
 } from '../environment.ts';
 import { ToolError } from '../errors.ts';
-import { type Datasource, GrafanaClient } from '../grafana.ts';
+import { type Datasource, fieldValueNames, GrafanaClient } from '../grafana.ts';
 import { parseHttpRecord } from '../http.ts';
 import { ECHO_CONSTANTS, ResponseBuilder, type ToolResponse } from '../response.ts';
 import { matchesScope, type NamespaceScope, scopeExtraFilter } from '../scope.ts';
@@ -29,7 +29,7 @@ export function buildSearchQuery(values: string[]): string {
 
 function datasourceNote(datasource: Datasource): string | undefined {
   if (datasource.candidates.length <= 1) return undefined;
-  return `источников этого типа несколько (${datasource.candidates.join(', ')}), взят первый; задать явно — grafana.datasourceUid`;
+  return `источников этого типа несколько (${datasource.candidates.map((item) => item.name).join(', ')}), взят первый; задать явно — grafana.datasourceUid`;
 }
 
 function applyScope(params: URLSearchParams, scope: NamespaceScope, allowMissing: boolean): void {
@@ -53,6 +53,7 @@ function applyNamespaceScope(
 interface RunOptions {
   command: string;
   query: string;
+  queryFile?: string | null;
   start: string;
   end: string;
   limit: number | null;
@@ -70,6 +71,7 @@ async function queryWithEcho(
     if (!(cause instanceof ToolError)) throw cause;
     throw cause.withEcho({
       query: options.query,
+      queryFile: options.queryFile ?? null,
       start: options.start,
       end: options.end,
       limit: options.limit,
@@ -102,7 +104,7 @@ async function resolveIngressNamespaces(
   try {
     const namespaceParams = new URLSearchParams({ field: NAMESPACE_FIELD, query: '*' });
     const namespaceResult = await context.client.fieldValues(context.datasource, namespaceParams);
-    return { namespaces: namespaceResult.values.map((item) => item.value), unavailableSources };
+    return { namespaces: fieldValueNames(namespaceResult.values), unavailableSources };
   } catch (cause) {
     builder.addReason('namespaceCatalogUnavailable');
     unavailableSources.push(`каталог namespace: ${(cause as Error).message}`);
@@ -151,6 +153,7 @@ export async function runLogsQuery(
     echo: {
       command: options.command,
       query: options.query,
+      queryFile: options.queryFile ?? null,
       request: GrafanaClient.describeRequest('select/logsql/query', params),
       start: options.start,
       end: options.end,
@@ -168,6 +171,8 @@ export async function runLogsQuery(
       profile: context.profile,
       namespaceScope: context.namespaceScope,
       recordsOutOfScope: droppedCount,
+      field: null,
+      value: options.searchValues ?? null,
     },
     incomplete: builder.incomplete,
     incompleteReasons: builder.reasonTexts,
@@ -202,6 +207,7 @@ export async function runFieldValues(
   options: {
     field: string;
     query: string | null;
+    queryFile?: string | null;
     start: string;
     end: string;
     limit: number | null;
@@ -231,6 +237,7 @@ export async function runFieldValues(
     echo: {
       command: 'logs fields',
       query: options.query ?? '*',
+      queryFile: options.queryFile ?? null,
       request: GrafanaClient.describeRequest('select/logsql/field_values', params),
       start: options.start,
       end: options.end,
@@ -248,6 +255,8 @@ export async function runFieldValues(
       profile: context.profile,
       namespaceScope: context.namespaceScope,
       recordsOutOfScope: 0,
+      field: options.field,
+      value: null,
     },
     incomplete: builder.incomplete,
     incompleteReasons: builder.reasonTexts,

@@ -1,5 +1,5 @@
 import { NAMESPACE_FIELD } from '../environment.ts';
-import { GrafanaClient } from '../grafana.ts';
+import { fieldValueNames, GrafanaClient } from '../grafana.ts';
 import { ECHO_CONSTANTS, type ToolResponse } from '../response.ts';
 import { scopeExtraFilter } from '../scope.ts';
 import type { LogsContext } from './logs.ts';
@@ -10,11 +10,11 @@ export async function runEnv(context: LogsContext): Promise<ToolResponse> {
   if (filter !== null) params.set('extra_filters', filter);
 
   const result = await context.client.fieldValues(context.datasource, params);
-  const namespaces = result.values.map((item) => item.value);
+  const namespaces = fieldValueNames(result.values);
   const acquiredAt = new Date().toISOString();
   const datasourceNote =
     context.datasource.candidates.length > 1
-      ? `источников этого типа несколько (${context.datasource.candidates.join(', ')}), взят первый; задать явно — grafana.datasourceUid`
+      ? `источников этого типа несколько (${context.datasource.candidates.map((item) => item.name).join(', ')}), взят первый; задать явно — grafana.datasourceUid`
       : null;
 
   return {

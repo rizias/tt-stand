@@ -6,6 +6,7 @@ export const ERROR_CLASSES = [
   'datasource_not_found',
   'timeout_client',
   'upstream_error',
+  'metrics_query_rejected',
   'stream_aborted',
   'bad_request',
   'config_invalid',
@@ -79,6 +80,18 @@ export const INCOMPLETENESS_REASONS = {
   outOfScopeDropped:
     'часть записей не попала в ответ: их namespace вне области видимости профиля — это не то же самое, что отсутствие событий',
   skillCopySkipped: 'часть копий скилла не поставлена: причины по каждой копии в data.skipped',
+  serverPartial: 'сервер пометил ответ частичным (isPartial)',
+  serverWarnings: 'сервер вернул предупреждения: тексты — в summary.server.warnings',
+  seriesOutOfScope:
+    'часть рядов не попала в ответ: их namespace вне области видимости профиля — это не то же самое, что отсутствие данных',
+  seriesWithoutNamespace:
+    'ряды без метки namespace не показаны: их принадлежность области не проверить — группировка by (namespace) в выражении даст проверяемые ряды',
+  labelValuesOutOfScope:
+    'часть значений метки namespace не попала в ответ: они вне области видимости профиля — это не то же самое, что отсутствие данных',
+  labelValuesHiddenByScope:
+    'значения метки не показаны: при заданной области их принадлежность namespace не определяется — metrics series показывает значения вместе с namespace',
+  responseShapeHiddenByScope:
+    'ответ сервера неожиданного вида показан не целиком: при заданной области принадлежность namespace его частей не проверить',
 } as const;
 
 export type IncompletenessKey = keyof typeof INCOMPLETENESS_REASONS;

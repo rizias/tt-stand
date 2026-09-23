@@ -9,19 +9,12 @@ import { ECHO_CONSTANTS, type ToolResponse } from '../response.ts';
 
 const DEFAULT_PROFILE_NAME = 'default';
 
-async function confirmOverwrite(blockingPath: string): Promise<void> {
-  if (!process.stdin.isTTY) {
-    throw new ToolError(
-      'config_exists',
-      `Файл конфигурации уже существует: ${blockingPath}. Терминал недоступен, подтверждение запросить не у кого — файлы не изменены. Перезаписать: добавьте --force.`,
-    );
-  }
+async function confirmOverwrite(blockingPath: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return false;
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   const answer = await rl.question(`Файл ${blockingPath} уже существует. Перезаписать? [y/N] `);
   rl.close();
-  if (answer.trim().toLowerCase() !== 'y') {
-    throw new ToolError('config_exists', `Файл ${blockingPath} не изменён.`);
-  }
+  return answer.trim().toLowerCase() === 'y';
 }
 
 function writeOverwritable(path: string, content: string, allowOverwrite: boolean): void {
@@ -48,8 +41,18 @@ export async function runConfigInit(rootPath: string, force: boolean): Promise<T
   const profileExists = existsSync(profilePath);
   const blockingPath = rootExists ? rootPath : profileExists ? profilePath : null;
 
-  if (blockingPath !== null && !force) {
-    await confirmOverwrite(blockingPath);
+  if (blockingPath !== null && !force && !(await confirmOverwrite(blockingPath))) {
+    return initResponse(
+      {
+        configPath: rootPath,
+        profile: DEFAULT_PROFILE_NAME,
+        profilePath,
+        credentialsPath,
+        changed: false,
+        existing: [rootPath, profilePath].filter((path) => existsSync(path)),
+      },
+      'Файлы уже существуют и не изменены. Перезаписать без вопроса: tt-stand config init --force.',
+    );
   }
 
   mkdirSync(dirname(rootPath), { recursive: true });
@@ -63,20 +66,26 @@ export async function runConfigInit(rootPath: string, force: boolean): Promise<T
     writeFileSync(credentialsPath, '', { encoding: 'utf8', flag: 'wx' });
   }
 
-  return {
-    ok: true,
-    command: 'config init',
-    data: {
+  return initResponse(
+    {
       configPath: rootPath,
       profile: DEFAULT_PROFILE_NAME,
       profilePath,
       credentialsPath,
+      changed: true,
       overwritten: rootExists || profileExists,
       credentialsCreated: !credentialsExisted,
     },
-    summary: {
-      hint: `Впишите доступ в ${credentialsPath}, затем проверьте его командой tt-stand env.`,
-    },
+    `Впишите доступ в ${credentialsPath}, затем проверьте его командой tt-stand env.`,
+  );
+}
+
+function initResponse(data: Record<string, unknown>, hint: string): ToolResponse {
+  return {
+    ok: true,
+    command: 'config init',
+    data,
+    summary: { hint },
     echo: {
       command: 'config init',
       query: null,

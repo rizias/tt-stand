@@ -69,7 +69,7 @@ test('неразбираемая строка остаётся в выдаче �
         bodyMissing: false,
       }),
     },
-    datasource: { uid: 'fictional', name: 'вымышленный источник', candidates: [] },
+    datasource: { uid: 'fictional', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
     profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;

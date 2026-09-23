@@ -79,58 +79,68 @@ function decodeCandidates(address: string, headers: string): HttpToken[] {
   return result;
 }
 
-export function parseHttpMessage(message: string): ParsedHttpTraffic | null {
-  const request =
-    /(?<method>[A-Z]+)\s+(?<path>\S+)\s+(?<protocol>HTTP\/(?:\d+(?:\.\d+)?|2|3))/u.exec(message);
-  if (!request?.groups) return null;
+function statusAndSizeOf(tail: string): { responseStatus: number | null; responseSize: number | null } {
+  const groups = /^\s+(?<status>\d{3})\s+(?<size>\d+|-)(?:\s|$)/u.exec(tail)?.groups;
+  const size = groups?.size;
+  return {
+    responseStatus: groups?.status ? Number(groups.status) : null,
+    responseSize: size && size !== '-' ? Number(size) : null,
+  };
+}
 
-  const method = request.groups.method as string;
-  const path = request.groups.path as string;
-  const protocol = request.groups.protocol as string;
-  const tail = message.slice((request.index ?? 0) + request[0].length).replace(/^"/, '');
-  const statusAndSize = /^\s+(?<status>\d{3})\s+(?<size>\d+|-)(?:\s|$)/u.exec(tail);
-  const responseStatus = statusAndSize?.groups?.status ? Number(statusAndSize.groups.status) : null;
-  const responseSize =
-    statusAndSize?.groups?.size && statusAndSize.groups.size !== '-'
-      ? Number(statusAndSize.groups.size)
-      : null;
-
+function userAgentOf(message: string, tail: string): string | null {
   const combined = /\s\d{3}\s+(?:\d+|-)\s+"[^"]*"\s+"(?<value>[^"]*)"/u.exec(tail);
-  const userAgent =
+  return (
     firstMatch(message, [
       /(?:http_user_agent|user_agent|user-agent)\s*[=:]\s*"(?<value>[^"]*)"/iu,
       /User-Agent:\s*(?<value>.*?)(?=\s+(?:[A-Za-z-]+:|\w+[=:])|$)/iu,
     ]) ??
     combined?.groups?.value ??
-    null;
+    null
+  );
+}
 
-  const duration =
+function durationOf(message: string, tail: string): string | null {
+  return (
     firstMatch(message, [
       /(?:request_time|duration|request_duration)\s*[=:]\s*"?(?<value>\d+(?:\.\d+)?(?:ms|s)?)"?/iu,
     ]) ??
-    firstMatch(tail, [/\s\d{3}\s+(?:\d+|-)\s+"[^"]*"\s+"[^"]*"\s+\d+\s+(?<value>\d+\.\d+)\s/u]);
+    firstMatch(tail, [/\s\d{3}\s+(?:\d+|-)\s+"[^"]*"\s+"[^"]*"\s+\d+\s+(?<value>\d+\.\d+)\s/u])
+  );
+}
+
+function upstreamOf(message: string): string | null {
+  return (
+    firstMatch(message, [/\[(?<value>[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d+)\]/u]) ??
+    firstMatch(message, [
+      /(?:upstream_addr|upstream_address|upstream)\s*[=:]\s*"?(?<value>[^\s",]+)"?/iu,
+    ])
+  );
+}
+
+export function parseHttpMessage(message: string): ParsedHttpTraffic | null {
+  const request =
+    /(?<method>[A-Z]+)\s+(?<path>\S+)\s+(?<protocol>HTTP\/(?:\d+(?:\.\d+)?|2|3))/u.exec(message);
+  if (!request?.groups) return null;
+
+  const path = request.groups.path as string;
+  const requestStart = request.index ?? 0;
+  const requestEnd = requestStart + request[0].length;
+  const tail = message.slice(requestEnd).replace(/^"/, '');
   const clientAddress = firstMatch(message, [
     /(?:remote_addr|client_addr|client_address)\s*[=:]\s*"?(?<value>[^\s",]+)"?/iu,
     /^(?<value>[^\s]+)\s+-\s+/u,
   ]);
-  const upstream =
-    firstMatch(message, [/\[(?<value>[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d+)\]/u]) ??
-    firstMatch(message, [
-      /(?:upstream_addr|upstream_address|upstream)\s*[=:]\s*"?(?<value>[^\s",]+)"?/iu,
-    ]);
-
-  const requestEnd = (request.index ?? 0) + request[0].length;
-  const headers = `${message.slice(0, request.index ?? 0)} ${message.slice(requestEnd)}`;
+  const headers = `${message.slice(0, requestStart)} ${message.slice(requestEnd)}`;
   return {
-    method,
+    method: request.groups.method as string,
     path,
-    protocol,
-    responseStatus,
-    responseSize,
-    duration,
+    protocol: request.groups.protocol as string,
+    ...statusAndSizeOf(tail),
+    duration: durationOf(message, tail),
     clientAddress,
-    userAgent,
-    upstream,
+    userAgent: userAgentOf(message, tail),
+    upstream: upstreamOf(message),
     tokens: decodeCandidates(path, headers),
   };
 }

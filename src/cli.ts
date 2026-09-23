@@ -4,12 +4,13 @@ import {
   joinNegativeValues,
   OPTIONS,
   type ParsedValues,
-  parseLimit,
   requiredPositional,
   USAGE,
 } from './cli/args.ts';
 import { buildLogsContext, dispatchK8s, dispatchLogs } from './cli/dispatch.ts';
 import { failureResponse } from './cli/failure.ts';
+import { dispatchMetrics } from './cli/dispatchMetrics.ts';
+import { computeIgnoredFlags, IGNORED_FLAGS_NOTE } from './cli/ignoredFlags.ts';
 import { runConfigInit } from './commands/configInit.ts';
 import { runEnv } from './commands/env.ts';
 import { runImage } from './commands/image.ts';
@@ -71,7 +72,6 @@ async function dispatch(argv: string[]): Promise<ToolResponse | null> {
   }
 
   const [group, action] = positionals;
-  const limit = parseLimit(values.limit);
 
   const local = await dispatchLocal(group, action, positionals, values);
   if (local !== null) return local;
@@ -105,7 +105,11 @@ async function dispatch(argv: string[]): Promise<ToolResponse | null> {
   }
 
   if (group === 'logs') {
-    return await dispatchLogs(action, values, limit);
+    return await dispatchLogs(action, values);
+  }
+
+  if (group === 'metrics') {
+    return await dispatchMetrics(action, values);
   }
 
   throw new ToolError(
@@ -159,6 +163,9 @@ async function main(): Promise<void> {
     const echo = response.echo as unknown as Record<string, unknown>;
     echo.journal = journalEntryPath(directory, at, origin);
     echo.journalRun = origin.run;
+    const ignoredFlags = computeIgnoredFlags(argv);
+    echo.ignoredFlags = ignoredFlags;
+    echo.ignoredFlagsNote = ignoredFlags.length > 0 ? IGNORED_FLAGS_NOTE : null;
     const profileName = typeof echo.profile === 'string' ? echo.profile : null;
     const outcome = writeJournalEntry(directory, argv, response, at, origin, profileName);
     if (outcome.failure !== null) echo.journal = outcome.failure;

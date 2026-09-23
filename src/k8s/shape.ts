@@ -27,53 +27,70 @@ export function itemCount(value: unknown): number {
   return Array.isArray(items) ? items.length : 1;
 }
 
+interface PodShape {
+  metadata?: Record<string, unknown>;
+  spec?: Record<string, unknown[]>;
+  status?: Record<string, unknown> & Record<string, unknown[]>;
+}
+
+function specContainersOf(object: PodShape): Array<{ type: string; item: unknown }> {
+  return [
+    ...(object.spec?.initContainers ?? []).map((item: unknown) => ({ type: 'init', item })),
+    ...(object.spec?.containers ?? []).map((item: unknown) => ({ type: 'container', item })),
+    ...(object.spec?.ephemeralContainers ?? []).map((item: unknown) => ({
+      type: 'ephemeral',
+      item,
+    })),
+  ];
+}
+
+function containerStatusesOf(object: PodShape): Array<Record<string, unknown>> {
+  return [
+    ...(object.status?.initContainerStatuses ?? []),
+    ...(object.status?.containerStatuses ?? []),
+    ...(object.status?.ephemeralContainerStatuses ?? []),
+  ] as Array<Record<string, unknown>>;
+}
+
+function summarizeContainer(
+  type: string,
+  item: unknown,
+  statuses: Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  const container = item as Record<string, unknown>;
+  const status = statuses.find((candidate) => candidate.name === container.name);
+  return {
+    type,
+    name: container.name ?? null,
+    image: container.image ?? null,
+    restartCount: status?.restartCount ?? 0,
+    imageId: status?.imageID ?? null,
+  };
+}
+
+function summarizePod(pod: unknown): Record<string, unknown> {
+  const object = pod as PodShape;
+  const specContainers = specContainersOf(object);
+  const statuses = containerStatusesOf(object);
+  return {
+    name: object.metadata?.name ?? null,
+    namespace: object.metadata?.namespace ?? null,
+    restartCount: statuses.reduce(
+      (sum, status) => sum + (typeof status.restartCount === 'number' ? status.restartCount : 0),
+      0,
+    ),
+    startTime: object.status?.startTime ?? null,
+    images: specContainers.map(({ item }) => (item as Record<string, unknown>).image ?? null),
+    containers: specContainers.map(({ type, item }) => summarizeContainer(type, item, statuses)),
+    pod,
+  };
+}
+
 export function summarizePods(value: unknown): unknown[] {
   if (typeof value !== 'object' || value === null) return [];
   const items = (value as { items?: unknown }).items;
   if (!Array.isArray(items)) return [];
-  return items.map((pod) => {
-    const object = pod as {
-      metadata?: Record<string, unknown>;
-      spec?: Record<string, unknown[]>;
-      status?: Record<string, unknown> & Record<string, unknown[]>;
-    };
-    const specContainers = [
-      ...(object.spec?.initContainers ?? []).map((item: unknown) => ({ type: 'init', item })),
-      ...(object.spec?.containers ?? []).map((item: unknown) => ({ type: 'container', item })),
-      ...(object.spec?.ephemeralContainers ?? []).map((item: unknown) => ({
-        type: 'ephemeral',
-        item,
-      })),
-    ];
-    const statuses = [
-      ...(object.status?.initContainerStatuses ?? []),
-      ...(object.status?.containerStatuses ?? []),
-      ...(object.status?.ephemeralContainerStatuses ?? []),
-    ] as Array<Record<string, unknown>>;
-    const containers = specContainers.map(({ type, item }) => {
-      const container = item as Record<string, unknown>;
-      const status = statuses.find((candidate) => candidate.name === container.name);
-      return {
-        type,
-        name: container.name ?? null,
-        image: container.image ?? null,
-        restartCount: status?.restartCount ?? 0,
-        imageId: status?.imageID ?? null,
-      };
-    });
-    return {
-      name: object.metadata?.name ?? null,
-      namespace: object.metadata?.namespace ?? null,
-      restartCount: statuses.reduce(
-        (sum, status) => sum + (typeof status.restartCount === 'number' ? status.restartCount : 0),
-        0,
-      ),
-      startTime: object.status?.startTime ?? null,
-      images: specContainers.map(({ item }) => (item as Record<string, unknown>).image ?? null),
-      containers,
-      pod,
-    };
-  });
+  return items.map(summarizePod);
 }
 
 interface DeployRevision {

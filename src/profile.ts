@@ -10,6 +10,7 @@ export interface GrafanaAccess {
   credentialsFile: string;
   timeoutSeconds: number | null;
   datasourceUid: string | null;
+  metricsDatasourceUid: string | null;
 }
 
 export interface KubernetesAccess {
@@ -45,6 +46,24 @@ function describe(name: string, path: string): string {
   return `профиле ${name} (${path})`;
 }
 
+function parseOptionalDatasourceUid(
+  value: unknown,
+  field: string,
+  location: string,
+): string | null {
+  if (value === undefined) return null;
+  const parsed = expectString(value, field, location);
+  if (parsed.length === 0 || parsed === '.' || parsed === '..') {
+    throw new ToolError(
+      'config_invalid',
+      `Поле ${field} в ${location} не может быть пустой строкой, «.» или «..»: ` +
+        `такое значение нельзя закодировать сегментом пути ` +
+        `/api/datasources/proxy/uid/<uid>/.`,
+    );
+  }
+  return parsed;
+}
+
 function parseGrafana(
   raw: Record<string, unknown>,
   name: string,
@@ -71,12 +90,18 @@ function parseGrafana(
       `Поле grafana.timeoutSeconds в ${location} должно быть больше нуля, получено ${timeoutSeconds}`,
     );
   }
-  const datasourceUid =
-    table.datasourceUid === undefined
-      ? null
-      : expectString(table.datasourceUid, 'grafana.datasourceUid', location);
+  const datasourceUid = parseOptionalDatasourceUid(
+    table.datasourceUid,
+    'grafana.datasourceUid',
+    location,
+  );
+  const metricsDatasourceUid = parseOptionalDatasourceUid(
+    table.metricsDatasourceUid,
+    'grafana.metricsDatasourceUid',
+    location,
+  );
 
-  return { baseUrl, credentialsFile, timeoutSeconds, datasourceUid };
+  return { baseUrl, credentialsFile, timeoutSeconds, datasourceUid, metricsDatasourceUid };
 }
 
 function parseKubernetes(

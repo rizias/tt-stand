@@ -56,6 +56,7 @@ function legacyProfileFromRoot(raw: Record<string, unknown>, path: string): Prof
       credentialsFile: legacyCredentialsFile,
       timeoutSeconds: null,
       datasourceUid: null,
+      metricsDatasourceUid: null,
     },
     kubernetes: profile.kubernetes ?? { kubeconfig: null, context: null },
   };

@@ -9,7 +9,7 @@ const credentials = {
   baseUrl: 'https://grafana.example.invalid',
 };
 
-const datasource = { uid: 'test-uid', name: 'тестовый источник', candidates: [] };
+const datasource = { uid: 'test-uid', name: 'тестовый источник', type: 'victoriametrics-logs-datasource', candidates: [] };
 
 function client(timeoutSeconds: number | null = 5): GrafanaClient {
   return new GrafanaClient({ credentials, timeoutSeconds });
@@ -108,20 +108,6 @@ test('строка, разорванная между кусками поток�
   }
 });
 
-test('несколько источников — берётся первый, остальные названы', async () => {
-  const restore = stubJson([
-    { uid: 'a', name: 'первый', type: 'victoriametrics-logs-datasource' },
-    { uid: 'b', name: 'второй', type: 'victoriametrics-logs-datasource' },
-  ]);
-  try {
-    const resolved = await client().resolveDatasource(null);
-    assert.equal(resolved.uid, 'a', 'инструмент не должен отказывать в работе');
-    assert.deepEqual(resolved.candidates, ['первый', 'второй']);
-  } finally {
-    restore();
-  }
-});
-
 test('ответ без тела не выдаётся за честное «ничего не найдено»', async () => {
   const original = globalThis.fetch;
   globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch;
@@ -146,18 +132,6 @@ test('401 от Grafana даёт auth_failed', async () => {
   }
 });
 
-test('403 на списке источников даёт datasource_list_forbidden', async () => {
-  const restore = stubStatus(403, 'Forbidden');
-  try {
-    await assert.rejects(
-      () => client().resolveDatasource(null),
-      (error: Error & { errorClass?: string }) => error.errorClass === 'datasource_list_forbidden',
-    );
-  } finally {
-    restore();
-  }
-});
-
 test('5xx даёт upstream_error с кодом состояния', async () => {
   const restore = stubStatus(503, 'Service Unavailable');
   try {
@@ -171,24 +145,39 @@ test('5xx даёт upstream_error с кодом состояния', async () =>
   }
 });
 
-test('список источников не массивом даёт upstream_error', async () => {
-  const restore = stubJson({ не: 'массив' });
+test('отказ сервера несёт тело ответа целиком, а не пересказ', async () => {
+  const restore = stubStatus(503, 'Service Unavailable');
   try {
     await assert.rejects(
-      () => client().resolveDatasource(null),
-      (error: Error & { errorClass?: string }) => error.errorClass === 'upstream_error',
+      () => client().queryLogs(datasource, new URLSearchParams(), null),
+      (error: Error & { message: string }) => error.message.includes('отказ'),
     );
   } finally {
     restore();
   }
 });
 
-test('ответ field_values без перечня значений — отказ, а не пустой результат', async () => {
+test('пустое тело отказа называется прямо', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response('', { status: 500, statusText: 'Internal Server Error' })) as unknown as typeof fetch;
+  try {
+    await assert.rejects(
+      () => client().queryLogs(datasource, new URLSearchParams(), null),
+      (error: Error & { message: string }) => error.message.includes('тело ответа пустое'),
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('ответ field_values без перечня значений — отказ с телом ответа целиком, а не пустой результат', async () => {
   const restore = stubJson({ ошибка: 'что-то' });
   try {
     await assert.rejects(
       () => client().fieldValues(datasource, new URLSearchParams()),
-      (error: Error & { errorClass?: string }) => error.errorClass === 'upstream_error',
+      (error: Error & { errorClass?: string; message: string }) =>
+        error.errorClass === 'upstream_error' && error.message.includes('{"ошибка":"что-то"}'),
     );
   } finally {
     restore();
@@ -211,9 +200,43 @@ test('таймаут при чтении тела даёт timeout_client и с�
   try {
     await assert.rejects(
       () => client(0.05).queryLogs(datasource, new URLSearchParams(), null),
-      (error: Error & { errorClass?: string; partialPayload?: { records?: unknown[] } }) =>
-        error.errorClass === 'timeout_client' && error.partialPayload?.records?.length === 1,
+      (error: Error & { errorClass?: string; message: string; partialPayload?: { records?: unknown[] } }) =>
+        error.errorClass === 'timeout_client' &&
+        error.partialPayload?.records?.length === 1 &&
+        error.message.includes('получен целиком за'),
     );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('код 200 у field_values с телом не JSON — upstream_error с телом ответа целиком', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response('не json вовсе', { status: 200 })) as unknown as typeof fetch;
+  try {
+    await assert.rejects(
+      () => client().fieldValues(datasource, new URLSearchParams()),
+      (error: Error & { errorClass?: string; message: string }) =>
+        error.errorClass === 'upstream_error' && error.message.includes('не json вовсе'),
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('идентификатор источника кодируется сегментом пути', async () => {
+  const original = globalThis.fetch;
+  let seenUrl = '';
+  globalThis.fetch = (async (url: string) => {
+    seenUrl = String(url);
+    return new Response('', { status: 200, headers: { 'content-type': 'application/x-ndjson' } });
+  }) as unknown as typeof fetch;
+  try {
+    const special = { ...datasource, uid: 'uid with spaces/and-slash' };
+    await client().queryLogs(special, new URLSearchParams(), null);
+    assert.ok(seenUrl.includes(encodeURIComponent('uid with spaces/and-slash')));
+    assert.ok(!seenUrl.includes('uid with spaces/and-slash'));
   } finally {
     globalThis.fetch = original;
   }
@@ -233,6 +256,31 @@ test('доступ токеном собирает заголовок Bearer, а
     });
     await tokenClient.queryLogs(datasource, new URLSearchParams(), null);
     assert.equal(seenAuthorization, 'Bearer секрет-токен');
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('элемент field_values не объект отдаётся как пришёл, команда не падает', async () => {
+  const restore = stubJson({ values: [null, 'pod-a', { value: 'stand-7', hits: 2 }] });
+  try {
+    const result = await client().fieldValues(datasource, new URLSearchParams());
+    assert.deepEqual(result.values, [null, 'pod-a', { value: 'stand-7', hits: 2 }]);
+  } finally {
+    restore();
+  }
+});
+
+test('field_values JSON не того вида — тело в тексте в исходной записи', async () => {
+  const original = globalThis.fetch;
+  const raw = '{\n  "error": "storage failed"\n}';
+  globalThis.fetch = (async () => new Response(raw, { status: 200 })) as unknown as typeof fetch;
+  try {
+    await assert.rejects(
+      () => client().fieldValues(datasource, new URLSearchParams()),
+      (error: Error & { errorClass?: string; message: string }) =>
+        error.errorClass === 'upstream_error' && error.message.includes(raw),
+    );
   } finally {
     globalThis.fetch = original;
   }

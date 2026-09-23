@@ -89,7 +89,7 @@ async function captureStderr<T>(action: () => Promise<T>): Promise<{ result: T; 
   }
 }
 
-test('мастерская пишет реестр и копию, равную шаблону, по указанному пути', async () => {
+test('установка скилла пишет реестр и копию, равную поставляемому скиллу, по указанному пути', async () => {
   const report = await installSkills(options('0.1.0'));
   assert.deepEqual(report.installed, [slashDestination()]);
   assert.equal(
@@ -101,7 +101,7 @@ test('мастерская пишет реестр и копию, равную �
   assert.deepEqual(registry.skills['tt-stand'][0], { path: slashDestination(), files: ['SKILL.md'] });
 });
 
-test('без подтверждения мастерская не создаёт копию и реестр', async () => {
+test('без подтверждения установка скилла не создаёт копию и реестр', async () => {
   const report = await installSkills(options('0.1.0', false));
   assert.deepEqual(report.installed, []);
   assert.deepEqual(report.skipped, []);

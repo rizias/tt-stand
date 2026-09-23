@@ -1,12 +1,24 @@
 import type { Credentials } from './credentials.ts';
+import type { Datasource } from './datasource.ts';
 import { ToolError } from './errors.ts';
+import { bodyDescription, GrafanaTransport } from './grafanaTransport.ts';
 
-export const LOGS_DATASOURCE_TYPE = 'victoriametrics-logs-datasource';
+export type { Datasource } from './datasource.ts';
 
-export interface Datasource {
-  uid: string;
-  name: string;
-  candidates: string[];
+function isPlainObject(item: unknown): item is Record<string, unknown> {
+  return item !== null && typeof item === 'object' && !Array.isArray(item);
+}
+
+function fieldValue(item: unknown): unknown {
+  if (!isPlainObject(item)) return item;
+  return { value: String(item.value ?? ''), hits: Number(item.hits ?? 0) };
+}
+
+export function fieldValueNames(values: unknown[]): string[] {
+  return values.flatMap((item) => {
+    if (typeof item === 'string') return [item];
+    return isPlainObject(item) ? [String(item.value)] : [];
+  });
 }
 
 export interface GrafanaClientOptions {
@@ -27,126 +39,21 @@ export interface StreamResult {
   bodyMissing: boolean;
 }
 
-function statusError(response: Response, url: string): ToolError {
-  const isDatasourceList = url.endsWith('/api/datasources');
-  if (response.status === 403 && isDatasourceList) {
-    return new ToolError(
-      'datasource_list_forbidden',
-      'Список источников данных недоступен этой учётной записи (403). Укажите источник явно: grafana.datasourceUid в файле конфигурации.',
-    );
-  }
-  if (response.status === 401 || response.status === 403) {
-    return new ToolError('auth_failed', `Grafana отклонила запрос с кодом ${response.status}.`);
-  }
-  return new ToolError(
-    'upstream_error',
-    `Сервер ответил кодом ${response.status} ${response.statusText}.`,
-  );
-}
-
 export class GrafanaClient {
-  private readonly credentials: Credentials;
-  private readonly timeoutMs: number | null;
+  private readonly transport: GrafanaTransport;
+  private readonly baseUrl: string;
 
   constructor(options: GrafanaClientOptions) {
-    this.credentials = options.credentials;
-    this.timeoutMs =
-      options.timeoutSeconds === null ? null : Math.round(options.timeoutSeconds * 1000);
+    this.transport = new GrafanaTransport(options);
+    this.baseUrl = options.credentials.baseUrl;
   }
 
-  private authHeader(): string {
-    if (this.credentials.kind === 'basic') {
-      const raw = `${this.credentials.login}:${this.credentials.password}`;
-      return `Basic ${Buffer.from(raw, 'utf8').toString('base64')}`;
-    }
-    return `Bearer ${this.credentials.token}`;
-  }
-
-  private async send(
-    url: string,
-    body: URLSearchParams | null,
-  ): Promise<{ response: Response; done: () => void; signal: AbortSignal }> {
-    const controller = new AbortController();
-    const timer =
-      this.timeoutMs === null ? null : setTimeout(() => controller.abort(), this.timeoutMs);
-    const done = (): void => {
-      if (timer !== null) clearTimeout(timer);
-    };
-
-    const headers: Record<string, string> = {
-      Authorization: this.authHeader(),
-      Accept: '*/*',
-    };
-    if (body !== null) headers['Content-Type'] = 'application/x-www-form-urlencoded';
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: body === null ? 'GET' : 'POST',
-        headers,
-        body: body === null ? undefined : body.toString(),
-        signal: controller.signal,
-      });
-    } catch (cause) {
-      done();
-      throw this.transportError(cause, controller.signal);
-    }
-
-    if (!response.ok) {
-      done();
-      throw statusError(response, url);
-    }
-    return { response, done, signal: controller.signal };
-  }
-
-  private transportError(cause: unknown, signal: AbortSignal): ToolError {
-    if (signal.aborted) {
-      return new ToolError(
-        'timeout_client',
-        `Ответ не получен за ${(this.timeoutMs as number) / 1000} с — сработал таймаут самого tt-stand (grafana.timeoutSeconds), не сервера.`,
-      );
-    }
-    return new ToolError('upstream_error', `Запрос не выполнен: ${(cause as Error).message}`);
-  }
-
-  async resolveDatasource(explicitUid: string | null): Promise<Datasource> {
-    if (explicitUid) return { uid: explicitUid, name: 'задан в конфигурации', candidates: [] };
-
-    const { response, done, signal } = await this.send(
-      `${this.credentials.baseUrl}/api/datasources`,
-      null,
-    );
-    let list: unknown;
-    try {
-      list = await this.readJson(response, signal, 'Список источников данных');
-    } finally {
-      done();
-    }
-
-    if (!Array.isArray(list)) {
-      throw new ToolError('upstream_error', 'Список источников данных пришёл не массивом.');
-    }
-
-    const candidates = (list as Array<{ uid: string; name: string; type: string }>).filter(
-      (item) => item?.type === LOGS_DATASOURCE_TYPE,
-    );
-    if (candidates.length === 0) {
-      throw new ToolError(
-        'datasource_not_found',
-        `Среди источников данных Grafana нет ни одного с типом ${LOGS_DATASOURCE_TYPE}.`,
-      );
-    }
-
-    const chosen = candidates[0] as { uid: string; name: string };
-    return {
-      uid: chosen.uid,
-      name: chosen.name,
-      candidates: candidates.map((item) => item.name),
-    };
+  get httpTransport(): GrafanaTransport {
+    return this.transport;
   }
 
   private endpoint(datasource: Datasource, path: string): string {
-    return `${this.credentials.baseUrl}/api/datasources/proxy/uid/${datasource.uid}/${path}`;
+    return `${this.baseUrl}/api/datasources/proxy/uid/${encodeURIComponent(datasource.uid)}/${path}`;
   }
 
   static describeRequest(path: string, params: URLSearchParams): string {
@@ -158,51 +65,43 @@ export class GrafanaClient {
     params: URLSearchParams,
     userLimit: number | null,
   ): Promise<StreamResult> {
-    const { response, done, signal } = await this.send(
+    const sent = await this.transport.sendOk(
+      'POST',
       this.endpoint(datasource, 'select/logsql/query'),
       params,
     );
     try {
-      return await this.consumeNdjson(response, userLimit, signal);
+      return await this.consumeNdjson(sent.response, userLimit, sent.signal);
     } finally {
-      done();
+      sent.done();
     }
   }
 
   async fieldValues(
     datasource: Datasource,
     params: URLSearchParams,
-  ): Promise<{ values: Array<{ value: string; hits: number }>; raw: unknown }> {
-    const { response, done, signal } = await this.send(
+  ): Promise<{ values: unknown[]; raw: unknown }> {
+    const sent = await this.transport.sendOk(
+      'POST',
       this.endpoint(datasource, 'select/logsql/field_values'),
       params,
     );
     try {
-      const body = (await this.readJson(response, signal, 'Ответ field_values')) as {
-        values?: Array<{ value?: string; hits?: number }>;
-      };
+      const parsed = await this.transport.readJsonBody(
+        sent.response,
+        sent.signal,
+        'Ответ field_values',
+      );
+      const body = parsed.value as { values?: unknown } | null;
       if (!Array.isArray(body?.values)) {
         throw new ToolError(
           'upstream_error',
-          'Ответ field_values не содержит перечня значений: это отказ источника, а не пустой результат.',
+          `Ответ field_values не содержит перечня значений: это отказ источника, а не пустой результат. Тело ответа: ${bodyDescription(parsed.body)}`,
         );
       }
-      const values = body.values.map((item) => ({
-        value: String(item.value ?? ''),
-        hits: Number(item.hits ?? 0),
-      }));
-      return { values, raw: body };
+      return { values: body.values.map(fieldValue), raw: body };
     } finally {
-      done();
-    }
-  }
-
-  private async readJson(response: Response, signal: AbortSignal, what: string): Promise<unknown> {
-    try {
-      return await response.json();
-    } catch (cause) {
-      if (signal.aborted) throw this.transportError(cause, signal);
-      throw new ToolError('upstream_error', `${what} не разобран: ${(cause as Error).message}`);
+      sent.done();
     }
   }
 
@@ -253,10 +152,10 @@ export class GrafanaClient {
       buffer += decoder.decode();
       if (buffer.length > 0) take(buffer);
     } catch (cause) {
-      if (signal.aborted && this.timeoutMs !== null) {
+      if (signal.aborted) {
         throw new ToolError(
           'timeout_client',
-          `Ответ не получен целиком за ${this.timeoutMs / 1000} с — сработал таймаут самого tt-stand (grafana.timeoutSeconds), не сервера.`,
+          `Ответ не получен целиком за ${this.transport.timeoutSeconds} с — сработал таймаут самого tt-stand (grafana.timeoutSeconds), не сервера.`,
           { records, unparsableLines },
         );
       }

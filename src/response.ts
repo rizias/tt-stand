@@ -17,6 +17,16 @@ export interface Echo {
   unavailableSources: string[];
   valueVariantsGenerated: string;
   identifierPivotPerformed: string;
+  queryFile?: string | null;
+  match?: string[] | null;
+  label?: string | null;
+  step?: string | null;
+  time?: string | null;
+  serverChosen?: string[];
+  datasourceType?: string | null;
+  datasourceUid?: string | null;
+  seriesWithoutNamespace?: number;
+  valuesHiddenByScope?: number;
   kubeconfig?: string;
   kubeconfigSource?: string;
   context?: string;
@@ -38,6 +48,8 @@ export interface Echo {
   namespaceScope?: string[] | null;
   recordsOutOfScope?: number;
   contextSource?: 'profile' | 'kubeconfig';
+  field?: string | null;
+  value?: string[] | null;
 }
 
 export const ECHO_CONSTANTS = {
@@ -60,10 +72,10 @@ export interface ToolResponse {
 }
 
 export class ResponseBuilder {
-  private readonly reasons = new Set<IncompletenessKey>();
+  private readonly reasons = new Map<IncompletenessKey, string | undefined>();
 
-  addReason(key: IncompletenessKey): void {
-    this.reasons.add(key);
+  addReason(key: IncompletenessKey, detail?: string): void {
+    this.reasons.set(key, detail);
   }
 
   get incomplete(): boolean {
@@ -71,7 +83,9 @@ export class ResponseBuilder {
   }
 
   get reasonTexts(): string[] {
-    return [...this.reasons].map((key) => INCOMPLETENESS_REASONS[key]);
+    return [...this.reasons.entries()].map(
+      ([key, detail]) => INCOMPLETENESS_REASONS[key] + (detail ?? ''),
+    );
   }
 }
 
@@ -119,6 +133,7 @@ function environmentLines(summary: unknown): string[] {
 }
 
 function recordLines(item: unknown): string[] {
+  if (item === null || typeof item !== 'object') return [String(item)];
   const row = item as Record<string, unknown>;
   const record = (row.record ?? row) as Record<string, unknown>;
   const environment = row.environment;
@@ -213,4 +228,18 @@ const ECHO_LABELS: Array<[string, string]> = [
   ['namespaceScope', 'область видимости'],
   ['recordsOutOfScope', 'записей вне области'],
   ['contextSource', 'источник контекста'],
+  ['queryFile', 'файл выражения'],
+  ['match', 'селекторы'],
+  ['label', 'метка'],
+  ['step', 'шаг'],
+  ['time', 'момент времени'],
+  ['serverChosen', 'выбрано сервером'],
+  ['datasourceType', 'тип источника'],
+  ['datasourceUid', 'идентификатор источника'],
+  ['seriesWithoutNamespace', 'рядов без namespace'],
+  ['valuesHiddenByScope', 'значений скрыто областью'],
+  ['ignoredFlags', 'проигнорированные флаги'],
+  ['ignoredFlagsNote', 'об игнорированных флагах'],
+  ['field', 'поле'],
+  ['value', 'искомые значения'],
 ];
