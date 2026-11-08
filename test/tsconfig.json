@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true,
+    "allowJs": true
+  },
+  "include": ["**/*.ts", "../src/mongo/socksv5.d.ts"]
+}

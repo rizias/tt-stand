@@ -29,30 +29,28 @@ export function readUpstream(record: LogRecord): string | null {
   return readField(record, 'upstream') ?? parseHttpRecord(record)?.upstream ?? null;
 }
 
-export function namespaceFromUpstream(
-  upstream: string,
-  namespaces: readonly string[],
-): string | null {
+export function namespaceFromUpstream(upstream: string, namespaces: readonly string[]): string | null {
   if (/^https?:\/\//iu.test(upstream)) return null;
 
   let matched: string | null = null;
   for (const namespace of namespaces) {
     const matchesBoundary = upstream === namespace || upstream.startsWith(`${namespace}-`);
-    if (
-      namespace.length > 0 &&
-      matchesBoundary &&
-      (matched === null || namespace.length > matched.length)
-    ) {
+    if (namespace.length > 0 && matchesBoundary && (matched === null || namespace.length > matched.length)) {
       matched = namespace;
     }
   }
   return matched;
 }
 
+export function resolvedNamespace(record: LabelledRecord, namespaces: readonly string[]): string | null {
+  if (record.environmentSource === 'namespace') return record.environment;
+  return record.environmentSource === 'upstream'
+    ? namespaceFromUpstream(record.environmentValue ?? '', namespaces)
+    : null;
+}
+
 export function hasIngressUpstream(records: readonly LogRecord[]): boolean {
-  return records.some(
-    (record) => readField(record, NAMESPACE_FIELD) === null && readUpstream(record) !== null,
-  );
+  return records.some((record) => readField(record, NAMESPACE_FIELD) === null && readUpstream(record) !== null);
 }
 
 export function labelRecord(record: LogRecord, namespaces: readonly string[]): LabelledRecord {
@@ -85,20 +83,25 @@ export function labelRecord(record: LogRecord, namespaces: readonly string[]): L
   };
 }
 
-export function summarizeLabelled(labelled: readonly LabelledRecord[]): LabellingSummary {
-  const byEnvironment: Record<string, number> = {};
+export function summarizeLabelled(
+  labelled: readonly LabelledRecord[],
+  namespaces: readonly string[] = [],
+): LabellingSummary {
+  const counts = new Map<string, number>();
   const unknownValues = new Set<string>();
+  let unknownCount = 0;
 
   for (const item of labelled) {
-    byEnvironment[item.environment] = (byEnvironment[item.environment] ?? 0) + 1;
-    if (item.environment === UNKNOWN_ENVIRONMENT) {
+    counts.set(item.environment, (counts.get(item.environment) ?? 0) + 1);
+    if (resolvedNamespace(item, namespaces) === null) {
+      unknownCount += 1;
       unknownValues.add(item.environmentValue ?? '(полей окружения в записи нет)');
     }
   }
 
   return {
-    byEnvironment,
-    unknownCount: byEnvironment[UNKNOWN_ENVIRONMENT] ?? 0,
+    byEnvironment: Object.fromEntries(counts),
+    unknownCount,
     unknownValues: [...unknownValues],
   };
 }
@@ -108,5 +111,5 @@ export function labelRecords(
   namespaces: readonly string[],
 ): { labelled: LabelledRecord[]; summary: LabellingSummary } {
   const labelled = records.map((record) => labelRecord(record, namespaces));
-  return { labelled, summary: summarizeLabelled(labelled) };
+  return { labelled, summary: summarizeLabelled(labelled, namespaces) };
 }

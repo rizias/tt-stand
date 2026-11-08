@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import updateNotifier from 'update-notifier';
 import { ToolError } from '../errors.ts';
+import { withFileLock, withFileLockAsync } from '../lock.ts';
 import { installSkills, maybeRefreshSkills } from './updater.ts';
 import type { Ask, ChosenTarget, InstallReport, TargetOption } from './updaterState.ts';
 
@@ -59,22 +59,29 @@ function createTerminal(): Terminal {
 }
 
 function writeTargets(options: TargetOption[], projectDir: string, skills: string[]): void {
-  const project = options.find((option) => option.id === 'project');
-  const roots = project?.roots.join(', ') ?? '';
+  const labels = {
+    global: 'глобально',
+    project: 'этот проект',
+    custom: 'путь, который введёте',
+  };
+  const targets = options.map((option, index) => {
+    const roots = option.roots.length > 0 ? ` -> ${option.roots.join(', ')}` : '';
+    return `  ${index + 1}. ${labels[option.id]}${roots}`;
+  });
   process.stderr.write(
     [
       `Проект: ${path.resolve(projectDir)}`,
       '',
       `Скиллы к установке: ${skills.join(', ')}`,
       'Куда ставить скилл?',
-      `  1. этот проект -> ${roots}`,
-      '  2. путь, который введёте',
+      ...targets,
       '',
     ].join('\n'),
   );
 }
 
 export function createAsk(terminal: Terminal, projectDir: string, tools?: readonly InitTool[]): Ask {
+  let confirmationPending = true;
   return {
     async chooseTargets({ skills, options }) {
       if (tools !== undefined) {
@@ -83,27 +90,32 @@ export function createAsk(terminal: Terminal, projectDir: string, tools?: readon
           root: path.join(path.resolve(projectDir), `.${tool}`, 'skills'),
         }));
       }
-      const visible = options.filter((option) => option.id !== 'global');
-      writeTargets(options, projectDir, skills);
-      const picked = await terminal.question('Куда ставить (1 или 2, пусто — отмена): ');
+      const choices = options.flatMap((option) => {
+        if (option.id === 'custom') return [option];
+        return option.roots.map((root) => ({ ...option, roots: [root] }));
+      });
+      writeTargets(choices, projectDir, skills);
+      const picked = await terminal.question('Номер каталога (несколько через запятую, пусто для отмены): ');
       const chosen: ChosenTarget[] = [];
       for (const part of picked
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean)) {
-        const option = visible[Number(part) - 1];
+        const option = choices[Number(part) - 1];
         if (option === undefined) continue;
         if (option.id === 'custom') {
           const root = (await terminal.question('Путь: ')).trim();
           if (root !== '') chosen.push({ id: 'custom', root });
         } else {
-          chosen.push({ id: option.id });
+          chosen.push({ id: 'custom', root: option.roots[0]! });
         }
       }
       return chosen;
     },
 
     async confirm({ message, paths }) {
+      if (!confirmationPending) return false;
+      confirmationPending = false;
       if (tools !== undefined) return true;
       for (const target of paths) process.stderr.write(`  ${target}\n`);
       const answer = await terminal.question(`${message} [y/N]: `);
@@ -116,37 +128,45 @@ export async function runInit(projectDir: string, tools?: readonly InitTool[]): 
   if (tools === undefined && !process.stdin.isTTY) {
     throw new ToolError(
       'bad_request',
-      'Некого спросить: ввод не терминал. Назовите каталоги явно, например --for claude,agents. Ничего не создано.',
+      'Ввод не терминал. Выберите назначение флагом --for agents для Codex или --for claude для Claude Code.',
     );
   }
-  keepInstalledSkillsFresh();
+  await keepInstalledSkillsFresh();
   const meta = packageMeta();
   const terminal = createTerminal();
   try {
-    return await installSkills({
-      pkgName: meta.name,
-      version: meta.version,
-      templates: templatesDir(),
-      stateDir: stateDir(),
-      ask: createAsk(terminal, projectDir, tools),
-      projectDir,
-    });
+    return await withFileLockAsync(path.join(stateDir(), 'skills-registry.json.lock'), () =>
+      installSkills({
+        pkgName: meta.name,
+        version: meta.version,
+        templates: templatesDir(),
+        stateDir: stateDir(),
+        ask: createAsk(terminal, projectDir, tools),
+        projectDir,
+      }),
+    );
   } finally {
     terminal.close();
   }
 }
 
-export function keepInstalledSkillsFresh(): void {
+export async function keepInstalledSkillsFresh(): Promise<void> {
   try {
-    if (process.stdout.isTTY)
+    if (process.stdout.isTTY && !process.env.CI && process.env.NO_UPDATE_NOTIFIER === undefined) {
+      const { default: updateNotifier } = await import('update-notifier');
       updateNotifier({ pkg: packageMeta(), updateCheckInterval: 1000 * 60 * 60 * 24 }).notify();
+    }
+    const registryFile = path.join(stateDir(), 'skills-registry.json');
+    if (!existsSync(registryFile)) return;
     const meta = packageMeta();
-    maybeRefreshSkills({
-      pkgName: meta.name,
-      version: meta.version,
-      templates: templatesDir(),
-      stateDir: stateDir(),
-    });
+    withFileLock(`${registryFile}.lock`, () =>
+      maybeRefreshSkills({
+        pkgName: meta.name,
+        version: meta.version,
+        templates: templatesDir(),
+        stateDir: stateDir(),
+      }),
+    );
   } catch {
     return;
   }

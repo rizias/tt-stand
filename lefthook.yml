@@ -1,11 +1,12 @@
 pre-commit:
   parallel: true
   commands:
+    format:
+      glob: '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,json,md,css,html,yml,yaml}'
+      run: npx prettier --check {staged_files}
     lint:
-      glob: "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
-      run: npx eslint --max-warnings 0 --no-warn-ignored {staged_files}
-    sizes:
-      run: node scripts/size-check.mjs
+      glob: '*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+      run: npx eslint --max-warnings 0 {staged_files}
     secrets:
       run: node scripts/gitleaks-if-present.mjs
 

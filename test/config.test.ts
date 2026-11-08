@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runConfigInit } from '../src/commands/configInit.ts';
 import { DEFAULT_ROOT_CONFIG, loadRootConfig, resolveConfigPath } from '../src/config.ts';
 import { parseProfile } from '../src/profile.ts';
@@ -39,9 +39,7 @@ test('явно заданный аргументом отсутствующий 
     assert.throws(
       () => loadRootConfig(path),
       (error: Error & { errorClass?: string }) =>
-        error.errorClass === 'config_invalid' &&
-        error.message.includes(path) &&
-        error.message.includes('--config'),
+        error.errorClass === 'config_invalid' && error.message.includes(path) && error.message.includes('--config'),
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -206,13 +204,12 @@ test('существующий заполненный файл учётных д
     const profileDirectory = join(profilesDirectory(path), 'default');
     const credentialsPath = join(profileDirectory, 'credentials.json');
     writeFileSync(credentialsPath, JSON.stringify({ kind: 'token', token: 'секрет-для-теста' }));
+    writeFileSync(path, JSON.stringify({ defaultProfile: 'default', extra: 'synthetic' }));
 
     const response = await runConfigInit(path, true);
     assert.equal(response.ok, true);
-    assert.equal(
-      readFileSync(credentialsPath, 'utf8'),
-      JSON.stringify({ kind: 'token', token: 'секрет-для-теста' }),
-    );
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { defaultProfile: 'default' });
+    assert.equal(readFileSync(credentialsPath, 'utf8'), JSON.stringify({ kind: 'token', token: 'секрет-для-теста' }));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

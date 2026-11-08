@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import {
   discoverProfiles,
+  loadProfile,
   PROFILE_VARIABLE,
   resolveActiveProfile,
   resolveProfileName,
@@ -42,11 +43,39 @@ test('профиль по умолчанию берётся из корнево�
   assert.equal(name, 'b');
 });
 
+test('существующее имя профиля с двоеточием принимается при любом способе выбора', () => {
+  const names = ['a:b'];
+  const directory = '/synthetic/profiles';
+  assert.equal(resolveProfileName('a:b', names, null, directory, {}), 'a:b');
+  assert.equal(resolveProfileName(null, names, null, directory, { [PROFILE_VARIABLE]: 'a:b' }), 'a:b');
+  assert.equal(resolveProfileName(null, names, 'a:b', directory, {}), 'a:b');
+  assert.equal(resolveProfileName(null, names, null, directory, {}), 'a:b');
+});
+
+test('чтение настроек существующего имени не вводит ограничений создания профиля', () => {
+  const directory = workspace();
+  try {
+    const profile = loadProfile('a:b', directory);
+    assert.equal(profile.name, 'a:b');
+    assert.equal(profile.path, join(directory, 'a:b', 'profile.json'));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('путь вне обнаруженных имён не выбирает профиль', () => {
+  assert.throws(() => resolveProfileName('../outside', ['selected'], null, '/synthetic/profiles', {}), {
+    errorClass: 'profile_missing',
+  });
+});
+
 test('профиль не выбран, а их несколько — profile_ambiguous с перечнем имён', () => {
   assert.throws(
     () => resolveProfileName(null, ['a', 'b'], null, 'C:/fictional/profiles', {}),
-    (error: Error & { errorClass?: string }) =>
-      error.errorClass === 'profile_ambiguous' && /a/.test(error.message) && /b/.test(error.message),
+    (error: Error & { errorClass?: string; echo?: { profiles?: string[] } }) => {
+      assert.deepEqual(error.echo?.profiles, ['a', 'b']);
+      return error.errorClass === 'profile_ambiguous' && /a/.test(error.message) && /b/.test(error.message);
+    },
   );
 });
 
@@ -59,10 +88,10 @@ test('названного профиля нет — profile_missing с пере
 });
 
 test('профилей нет вовсе — profile_missing', () => {
-  assert.throws(
-    () => resolveProfileName(null, [], null, 'C:/fictional/profiles', {}),
-    (error: Error & { errorClass?: string }) => error.errorClass === 'profile_missing',
-  );
+  assert.throws(() => resolveProfileName(null, [], null, 'C:/fictional/profiles', {}), {
+    errorClass: 'profile_missing',
+    echo: { profiles: [] },
+  });
 });
 
 test('настоящие профили обнаруживаются в каталоге рядом с config.json', () => {

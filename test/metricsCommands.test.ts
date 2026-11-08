@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runMetricsInstant, runMetricsQuery, type MetricsContext } from '../src/commands/metrics.ts';
 import type { Datasource } from '../src/datasource.ts';
 import { GrafanaTransport } from '../src/grafanaTransport.ts';
@@ -328,10 +328,7 @@ test('отказ сервера метрик сохраняет эхо запр�
 
 test('область задана: одиночное значение scalar не выводится и учтено как ряд без namespace', async () => {
   const captured: Captured[] = [];
-  const restore = stubJson(
-    { status: 'success', data: { resultType: 'scalar', result: [1, '42'] } },
-    captured,
-  );
+  const restore = stubJson({ status: 'success', data: { resultType: 'scalar', result: [1, '42'] } }, captured);
   try {
     const response = await runMetricsInstant(context(['stand-*']), {
       query: 'scalar(sum(up))',
@@ -413,7 +410,14 @@ test('pointCount matrix считает точки values и histograms', async (
       data: {
         resultType: 'matrix',
         result: [
-          { metric: { pod: 'a' }, values: [[1, '1'], [2, '2']], histograms: [[1, {}]] },
+          {
+            metric: { pod: 'a' },
+            values: [
+              [1, '1'],
+              [2, '2'],
+            ],
+            histograms: [[1, {}]],
+          },
         ],
       },
     },

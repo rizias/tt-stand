@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import {
-  LOGS_DATASOURCE_TYPES,
-  METRICS_DATASOURCE_TYPES,
-  resolveDatasource,
-} from '../src/datasource.ts';
+import { test } from 'vitest';
+import { LOGS_DATASOURCE_TYPES, METRICS_DATASOURCE_TYPES, resolveDatasource } from '../src/datasource.ts';
 import { GrafanaTransport } from '../src/grafanaTransport.ts';
 
 const credentials = {
@@ -28,8 +24,7 @@ function stubJson(body: unknown, status = 200): () => void {
 
 function stubStatus(status: number, statusText: string, body = 'отказ'): () => void {
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(body, { status, statusText })) as unknown as typeof fetch;
+  globalThis.fetch = (async () => new Response(body, { status, statusText })) as unknown as typeof fetch;
   return () => {
     globalThis.fetch = original;
   };
@@ -54,6 +49,22 @@ test('явный uid не запрашивает список источнико
     assert.equal(called, false, 'список источников не должен запрашиваться');
   } finally {
     globalThis.fetch = original;
+  }
+});
+
+test('некорректный список источников не отражает загруженный пароль', async () => {
+  const restore = stubJson({ error: 'synthetic-secret' });
+  try {
+    const secured = new GrafanaTransport({
+      credentials: { ...credentials, password: 'synthetic-secret' },
+      timeoutSeconds: 5,
+    });
+    await assert.rejects(
+      () => resolveDatasource(secured, null, LOGS_DATASOURCE_TYPES, 'grafana.datasourceUid'),
+      (error: Error) => !error.message.includes('synthetic-secret'),
+    );
+  } finally {
+    restore();
   }
 });
 
@@ -85,13 +96,7 @@ test('подходящего источника нет — текст назыв
   const restore = stubJson([{ uid: 'x', name: 'чужой', type: 'loki' }]);
   try {
     await assert.rejects(
-      () =>
-        resolveDatasource(
-          transport(),
-          null,
-          METRICS_DATASOURCE_TYPES,
-          'grafana.metricsDatasourceUid',
-        ),
+      () => resolveDatasource(transport(), null, METRICS_DATASOURCE_TYPES, 'grafana.metricsDatasourceUid'),
       (error: Error & { errorClass?: string; message: string }) =>
         error.errorClass === 'datasource_not_found' &&
         METRICS_DATASOURCE_TYPES.every((type) => error.message.includes(type)) &&
@@ -120,13 +125,7 @@ test('403 на списке источников называет нужную �
   const restore = stubStatus(403, 'Forbidden');
   try {
     await assert.rejects(
-      () =>
-        resolveDatasource(
-          transport(),
-          null,
-          METRICS_DATASOURCE_TYPES,
-          'grafana.metricsDatasourceUid',
-        ),
+      () => resolveDatasource(transport(), null, METRICS_DATASOURCE_TYPES, 'grafana.metricsDatasourceUid'),
       (error: Error & { errorClass?: string; message: string }) =>
         error.errorClass === 'datasource_list_forbidden' &&
         error.message.includes('grafana.metricsDatasourceUid') &&
@@ -152,8 +151,7 @@ test('список источников не массивом даёт upstream_
 
 test('код 200 с телом не JSON — upstream_error с телом ответа целиком', async () => {
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response('<html>не JSON</html>', { status: 200 })) as unknown as typeof fetch;
+  globalThis.fetch = (async () => new Response('<html>не JSON</html>', { status: 200 })) as unknown as typeof fetch;
   try {
     await assert.rejects(
       () => resolveDatasource(transport(), null, LOGS_DATASOURCE_TYPES, 'grafana.datasourceUid'),
@@ -169,13 +167,7 @@ test('идентификатор источника из списка Grafana �
   const restore = stubJson([{ uid: '.', name: 'странный', type: 'prometheus' }]);
   try {
     await assert.rejects(
-      () =>
-        resolveDatasource(
-          transport(),
-          null,
-          METRICS_DATASOURCE_TYPES,
-          'grafana.metricsDatasourceUid',
-        ),
+      () => resolveDatasource(transport(), null, METRICS_DATASOURCE_TYPES, 'grafana.metricsDatasourceUid'),
       (error: Error & { errorClass?: string; message: string }) =>
         error.errorClass === 'upstream_error' &&
         error.message.includes('странный') &&
@@ -195,13 +187,7 @@ for (const [title, entry] of [
     const restore = stubJson([entry]);
     try {
       await assert.rejects(
-        () =>
-          resolveDatasource(
-            transport(),
-            null,
-            METRICS_DATASOURCE_TYPES,
-            'grafana.metricsDatasourceUid',
-          ),
+        () => resolveDatasource(transport(), null, METRICS_DATASOURCE_TYPES, 'grafana.metricsDatasourceUid'),
         (error: Error & { errorClass?: string; message: string }) =>
           error.errorClass === 'upstream_error' &&
           error.message.includes('пустой') &&

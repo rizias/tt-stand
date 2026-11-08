@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runLogsQuery } from '../src/commands/logs.ts';
 import { GrafanaClient, type Datasource } from '../src/grafana.ts';
 import type { Credentials } from '../src/credentials.ts';
@@ -11,7 +11,12 @@ const credentials: Credentials = {
   password: 'pass',
   baseUrl: 'https://grafana.example.invalid',
 };
-const datasource: Datasource = { uid: 'ds', name: 'фиктивный источник', type: 'victoriametrics-logs-datasource', candidates: [] };
+const datasource: Datasource = {
+  uid: 'ds',
+  name: 'фиктивный источник',
+  type: 'victoriametrics-logs-datasource',
+  candidates: [],
+};
 
 function context(namespaceScope: string[] | null): LogsContext {
   return {
@@ -27,11 +32,7 @@ interface Captured {
   body: string;
 }
 
-function stubQueryAndFieldValues(
-  queryBody: string,
-  fieldValuesBody: string,
-  captured: Captured[],
-): () => void {
+function stubQueryAndFieldValues(queryBody: string, fieldValuesBody: string, captured: Captured[]): () => void {
   const original = globalThis.fetch;
   globalThis.fetch = (async (url: string, init?: { body?: string }) => {
     captured.push({ url: String(url), body: String(init?.body ?? '') });
@@ -119,7 +120,8 @@ test('записи вне области, определённые по upstream
     '{"_msg":"c","upstream":"prod-9-8080"}',
     '{"_msg":"d","upstream":"https://external.example.invalid/thing"}',
   ].join('\n');
-  const namespaces = '{"values":[{"value":"stand-1","hits":1},{"value":"stand-2","hits":1},{"value":"prod-9","hits":1}]}';
+  const namespaces =
+    '{"values":[{"value":"stand-1","hits":1},{"value":"stand-2","hits":1},{"value":"prod-9","hits":1}]}';
   const captured: Captured[] = [];
   const restore = stubQueryAndFieldValues(`${records}\n`, namespaces, captured);
   try {
@@ -142,6 +144,73 @@ test('записи вне области, определённые по upstream
     assert.match(response.incompleteReasons.join(' '), /namespace не определён/);
   } finally {
     restore();
+  }
+});
+
+test('запись с явным namespace вне области отбрасывается даже при нарушении фильтра сервером', async () => {
+  const captured: Captured[] = [];
+  const restore = stubQueryAndFieldValues('{"kubernetes.pod_namespace":"prod-1"}\n', '{"values":[]}', captured);
+  try {
+    const response = await runLogsQuery(context(['stand-*']), {
+      command: 'logs query',
+      query: '*',
+      start: '-1h',
+      end: 'now',
+      limit: null,
+    });
+    assert.deepEqual(response.data, []);
+    assert.equal(response.echo.recordsOutOfScope, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('настоящий namespace unknown не обходит область видимости', async () => {
+  const captured: Captured[] = [];
+  const restore = stubQueryAndFieldValues('{"kubernetes.pod_namespace":"unknown"}\n', '{"values":[]}', captured);
+  try {
+    const response = await runLogsQuery(context(['stand-*']), {
+      command: 'logs query',
+      query: '*',
+      start: '-1h',
+      end: 'now',
+      limit: null,
+    });
+    assert.deepEqual(response.data, []);
+    assert.equal(response.echo.recordsOutOfScope, 1);
+  } finally {
+    restore();
+  }
+});
+
+test('частичный ответ при таймауте проходит разметку и проверку области', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (_url: string, init?: { signal?: AbortSignal }) => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"kubernetes.pod_namespace":"prod-1"}\n'));
+        controller.enqueue(new TextEncoder().encode('{"kubernetes.pod_namespace":"stand-1"}\n'));
+        init?.signal?.addEventListener('abort', () => controller.error(new Error('aborted')));
+      },
+    });
+    return new Response(stream, { status: 200 });
+  }) as unknown as typeof fetch;
+  try {
+    const slow = context(['stand-*']);
+    slow.client = new GrafanaClient({ credentials, timeoutSeconds: 0.05 });
+    const response = await runLogsQuery(slow, {
+      command: 'logs query',
+      query: '*',
+      start: '-1h',
+      end: 'now',
+      limit: null,
+    });
+    assert.equal(response.errorClass, 'timeout_client');
+    assert.equal((response.data as unknown[]).length, 1);
+    assert.equal(response.echo.recordsOutOfScope, 1);
+    assert.equal((response.data as Array<{ environment: string }>)[0]?.environment, 'stand-1');
+  } finally {
+    globalThis.fetch = original;
   }
 });
 

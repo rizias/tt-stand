@@ -1,4 +1,4 @@
-import { INCOMPLETENESS_REASONS } from '../errors.ts';
+import { INCOMPLETENESS_REASONS, type ToolError } from '../errors.ts';
 import { runAction } from '../k8s/actions.ts';
 import { classifyK8sError, type K8sCommand } from '../k8s/errors.ts';
 import { K8sSession, type K8sSessionLike } from '../k8s/session.ts';
@@ -7,11 +7,7 @@ import { requireKubernetes, type Profile } from '../profile.ts';
 import type { Echo, ToolResponse } from '../response.ts';
 import { assertInScope, NAMESPACE_SOURCES } from '../scope.ts';
 
-function failureEcho(
-  echo: Echo & Record<string, unknown>,
-  command: K8sCommand,
-  session: K8sSessionLike | null,
-): void {
+function failureEcho(echo: Echo & Record<string, unknown>, command: K8sCommand, session: K8sSessionLike | null): void {
   if (session) echo.request = session.lastRequest;
   const fallbackNamespace = session?.metadata.defaultNamespace ?? null;
 
@@ -39,13 +35,25 @@ function failureEcho(
   });
 }
 
+function failureDescription(
+  error: ToolError,
+  echo: Echo & Record<string, unknown>,
+  command: K8sCommand,
+  session: K8sSessionLike | null,
+): string {
+  if (error.errorClass !== 'k8s_access_forbidden') return error.message;
+  const namespace =
+    typeof echo.namespace === 'string'
+      ? echo.namespace
+      : (session?.lastRequest?.match(/\/namespaces\/([^/]+)/u)?.[1] ?? 'не указан');
+  return `${error.message} Ресурс ${String(echo.resource ?? command.action)}, namespace ${namespace}.`;
+}
+
 export async function runK8sCommand(
   profile: Profile,
   command: K8sCommand,
-  makeSession: (configured: string | null, context: string | null) => K8sSessionLike = (
-    configured,
-    context,
-  ) => new K8sSession(configured, context),
+  makeSession: (configured: string | null, context: string | null) => K8sSessionLike = (configured, context) =>
+    new K8sSession(configured, context),
 ): Promise<ToolResponse> {
   const commandName = `k8s ${command.action}`;
   const echo = baseEcho(commandName) as Echo & Record<string, unknown>;
@@ -54,10 +62,7 @@ export async function runK8sCommand(
   let session: K8sSessionLike | null = null;
 
   try {
-    const source =
-      command.namespace === null
-        ? NAMESPACE_SOURCES.contextDefault
-        : NAMESPACE_SOURCES.argument;
+    const source = command.namespace === null ? NAMESPACE_SOURCES.contextDefault : NAMESPACE_SOURCES.argument;
     if (command.namespace !== null) {
       assertInScope(command.namespace, profile.namespaceScope, profile.name, source);
     }
@@ -69,9 +74,7 @@ export async function runK8sCommand(
       assertInScope(namespace, profile.namespaceScope, profile.name, source);
     });
     Object.assign(echo, outcome.echoPatch);
-    echo.recordsReturned = Array.isArray(outcome.data)
-      ? outcome.data.length
-      : itemCount(outcome.data);
+    echo.recordsReturned = Array.isArray(outcome.data) ? outcome.data.length : itemCount(outcome.data);
     if (outcome.unreadable.length > 0) echo.unavailableSources = outcome.unreadable;
 
     const reasons: string[] = [];
@@ -100,15 +103,12 @@ export async function runK8sCommand(
       ok: false,
       command: commandName,
       data: error.partialPayload ?? null,
-      summary:
-        error.errorClass === 'previous_log_unavailable'
-          ? { logAvailable: false, previous: true }
-          : null,
+      summary: error.errorClass === 'previous_log_unavailable' ? { logAvailable: false, previous: true } : null,
       echo,
       incomplete: true,
       incompleteReasons: [INCOMPLETENESS_REASONS.k8sCommandFailed],
       errorClass: error.errorClass,
-      error: error.message,
+      error: failureDescription(error, echo, command, session),
     };
   }
 }

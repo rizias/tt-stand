@@ -39,9 +39,11 @@ function splitRegistry(reference: string): { registry: string | null; rest: stri
 
 export function parseImageReference(reference: string): ParsedImage {
   const { registry, rest } = splitRegistry(reference);
-  const separator = rest.lastIndexOf(':');
-  const path = separator === -1 ? rest : rest.slice(0, separator);
-  const tag = separator === -1 ? '' : rest.slice(separator + 1);
+  const digest = rest.indexOf('@');
+  const tagged = digest === -1 ? rest : rest.slice(0, digest);
+  const separator = tagged.lastIndexOf(':');
+  const path = separator === -1 ? tagged : tagged.slice(0, separator);
+  const tag = separator === -1 ? '' : tagged.slice(separator + 1);
   const match = /^(?<version>.*?)-?(?<commit>[0-9a-fA-F]{40})$/u.exec(tag);
   return {
     reference,
@@ -109,11 +111,7 @@ export interface BranchCandidate {
   lastCommitDate: string;
 }
 
-export async function runImage(
-  profileName: string,
-  roots: string[],
-  reference: string,
-): Promise<ToolResponse> {
+export async function runImage(profileName: string, roots: string[], reference: string): Promise<ToolResponse> {
   const parsed = parseImageReference(reference);
 
   const echo = {
@@ -137,8 +135,7 @@ export async function runImage(
     repository: null as string | null,
     refsUpdatedAt: null as string | null,
     fetchPerformed: 'git fetch не выполнялся: локальные ссылки могли устареть',
-    refsUpdatedAtNote:
-      'время последнего обновления удалённых ссылок; null означает, что оно неизвестно',
+    refsUpdatedAtNote: 'время последнего обновления удалённых ссылок; null означает, что оно неизвестно',
     profile: profileName,
   };
 
@@ -260,9 +257,7 @@ export async function runImage(
     echo,
     incomplete: branchCandidates.length === 0,
     incompleteReasons:
-      branchCandidates.length === 0
-        ? ['ни одна локальная ссылка не содержит этот коммит: ссылки могли устареть']
-        : [],
+      branchCandidates.length === 0 ? ['ни одна локальная ссылка не содержит этот коммит: ссылки могли устареть'] : [],
     errorClass: null,
     error: null,
   };

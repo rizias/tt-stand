@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { Datasource } from '../src/datasource.ts';
 import { callMetrics } from '../src/metrics.ts';
 import { GrafanaTransport } from '../src/grafanaTransport.ts';
@@ -37,10 +37,7 @@ function stubResponse(body: string, status: number, statusText = 'OK'): () => vo
 }
 
 test('успешный ответ query_range возвращается целиком', async () => {
-  const restore = stubResponse(
-    JSON.stringify({ status: 'success', data: { resultType: 'matrix', result: [] } }),
-    200,
-  );
+  const restore = stubResponse(JSON.stringify({ status: 'success', data: { resultType: 'matrix', result: [] } }), 200);
   try {
     const call = await callMetrics(
       transport(),
@@ -79,6 +76,23 @@ test('status: error при 200 даёт metrics_query_rejected', async () => {
         error.message.includes('HTTP 200') &&
         error.message.includes('bad_data') &&
         error.message.includes('выражение не разобрано'),
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('ошибка метрик не публикует отражённый сервером токен доступа', async () => {
+  const secret = 'synthetic-secret';
+  const restore = stubResponse(JSON.stringify({ status: 'error', errorType: 'bad_data', error: secret }), 200);
+  try {
+    const secured = new GrafanaTransport({
+      credentials: { kind: 'token', token: secret, baseUrl: credentials.baseUrl },
+      timeoutSeconds: 5,
+    });
+    await assert.rejects(
+      () => callMetrics(secured, credentials.baseUrl, datasource, 'POST', 'api/v1/query', new URLSearchParams()),
+      (error: Error) => !error.message.includes(secret),
     );
   } finally {
     restore();
@@ -256,10 +270,7 @@ test('status: error без полей errorType и error — текст назы
 });
 
 test('status: error с error не строкового типа — текст содержит его представление JSON', async () => {
-  const restore = stubResponse(
-    JSON.stringify({ status: 'error', errorType: 'bad_data', error: { code: 42 } }),
-    200,
-  );
+  const restore = stubResponse(JSON.stringify({ status: 'error', errorType: 'bad_data', error: { code: 42 } }), 200);
   try {
     await assert.rejects(
       () =>
@@ -282,14 +293,7 @@ test('status: error с error не строкового типа — текст �
 test('GET без параметров уходит без «?» в конце пути', async () => {
   const restore = stubResponse(JSON.stringify({ status: 'success', data: [] }), 200);
   try {
-    await callMetrics(
-      transport(),
-      credentials.baseUrl,
-      datasource,
-      'GET',
-      'api/v1/labels',
-      new URLSearchParams(),
-    );
+    await callMetrics(transport(), credentials.baseUrl, datasource, 'GET', 'api/v1/labels', new URLSearchParams());
     assert.doesNotMatch(lastRequest.url, /\?$/);
     assert.match(lastRequest.url, /api\/v1\/labels$/);
   } finally {

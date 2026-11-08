@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runEnv } from '../src/commands/env.ts';
 import { type LogsContext, runLogsQuery } from '../src/commands/logs.ts';
 import {
@@ -25,18 +25,13 @@ test('окружение прикладного лога равно namespace', 
 });
 
 test('namespace определяется по префиксу upstream', () => {
-  const labelled = labelRecord({ upstream: 'fictional-production-fictional-admin-api-8000' }, [
-    'fictional-production',
-  ]);
+  const labelled = labelRecord({ upstream: 'fictional-production-fictional-admin-api-8000' }, ['fictional-production']);
   assert.equal(labelled.environment, 'fictional-production');
   assert.equal(labelled.environmentSource, 'upstream');
 });
 
 test('из совпавших префиксов upstream берётся самый длинный namespace', () => {
-  const labelled = labelRecord({ upstream: 'fictional-team-long-api-8000' }, [
-    'fictional-team',
-    'fictional-team-long',
-  ]);
+  const labelled = labelRecord({ upstream: 'fictional-team-long-api-8000' }, ['fictional-team', 'fictional-team-long']);
   assert.equal(labelled.environment, 'fictional-team-long');
 });
 
@@ -47,10 +42,7 @@ test('upstream без совпадения получает unknown и сохр�
 });
 
 test('upstream в виде HTTP-адреса получает unknown', () => {
-  const labelled = labelRecord({ upstream: 'http://192.0.2.20:8000/items/' }, [
-    'http',
-    'fictional-team-01',
-  ]);
+  const labelled = labelRecord({ upstream: 'http://192.0.2.20:8000/items/' }, ['http', 'fictional-team-01']);
   assert.equal(labelled.environment, UNKNOWN_ENVIRONMENT);
   assert.equal(labelled.environmentValue, 'http://192.0.2.20:8000/items/');
 });
@@ -72,10 +64,19 @@ test('сводка считает записи по namespace и сохраня�
   );
   assert.equal(summary.byEnvironment['fictional-team-01'], 1);
   assert.equal(summary.unknownCount, 2);
-  assert.deepEqual(summary.unknownValues, [
-    'fictional-missing-b-api-8000',
-    'fictional-missing-a-api-8000',
-  ]);
+  assert.deepEqual(summary.unknownValues, ['fictional-missing-b-api-8000', 'fictional-missing-a-api-8000']);
+});
+
+test('сводка корректно считает namespace с именем свойства Object', () => {
+  const { summary } = labelRecords([{ [NAMESPACE_FIELD]: 'constructor' }], []);
+  assert.equal(summary.byEnvironment.constructor, 1);
+  assert.equal(summary.unknownCount, 0);
+});
+
+test('реальный namespace unknown не считается неразмеченной записью', () => {
+  const { summary } = labelRecords([{ [NAMESPACE_FIELD]: 'unknown' }], []);
+  assert.equal(summary.byEnvironment.unknown, 1);
+  assert.equal(summary.unknownCount, 0);
 });
 
 test('каждый вызов с ingress запрашивает полный каталог без периода и лимита', async () => {
@@ -101,8 +102,13 @@ test('каждый вызов с ingress запрашивает полный к�
         };
       },
     },
-    datasource: { uid: 'fictional-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
-    profile: "default",
+    datasource: {
+      uid: 'fictional-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
+    profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
   const options = {
@@ -143,8 +149,13 @@ test('набор без ingress-upstream не вызывает запрос ка
         return { values: [], raw: {} };
       },
     },
-    datasource: { uid: 'fictional-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
-    profile: "default",
+    datasource: {
+      uid: 'fictional-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
+    profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
 
@@ -157,10 +168,7 @@ test('набор без ingress-upstream не вызывает запрос ка
   });
 
   assert.equal(fieldValueCalls, 0);
-  assert.equal(
-    (response.data as Array<{ environment: string }>)[0]?.environment,
-    'fictional-team-01',
-  );
+  assert.equal((response.data as Array<{ environment: string }>)[0]?.environment, 'fictional-team-01');
 });
 
 test('env показывает список в порядке хранилища, время и параметры запроса', async () => {
@@ -178,8 +186,13 @@ test('env показывает список в порядке хранилища
         };
       },
     },
-    datasource: { uid: 'fictional-env-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
-    profile: "default",
+    datasource: {
+      uid: 'fictional-env-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
+    profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
 
@@ -188,10 +201,7 @@ test('env показывает список в порядке хранилища
   assert.deepEqual(data.namespaces, ['fictional-team-02', 'fictional-team-01']);
   assert.match(data.acquiredAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.deepEqual(Object.keys(data), ['namespaces', 'acquiredAt']);
-  assert.deepEqual(Object.keys(response.summary as Record<string, unknown>), [
-    'namespaceCount',
-    'acquiredAt',
-  ]);
+  assert.deepEqual(Object.keys(response.summary as Record<string, unknown>), ['namespaceCount', 'acquiredAt']);
   assert.equal(requests.length, 1);
   assert.equal(requests[0]?.get('field'), NAMESPACE_FIELD);
   assert.equal(requests[0]?.get('query'), '*');
@@ -222,8 +232,13 @@ test('команда логов получает каталог и размеч�
         raw: {},
       }),
     },
-    datasource: { uid: 'fictional-logs-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
-    profile: "default",
+    datasource: {
+      uid: 'fictional-logs-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
+    profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
 
@@ -262,8 +277,13 @@ test('полный каталог сохраняет планку разметк
         raw: {},
       }),
     },
-    datasource: { uid: 'fictional-coverage-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
-    profile: "default",
+    datasource: {
+      uid: 'fictional-coverage-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
+    profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
 
@@ -301,8 +321,13 @@ test('недоступный каталог не скрывает получен
         throw new Error('вымышленный отказ каталога');
       },
     },
-    datasource: { uid: 'fictional-failing-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
-    profile: "default",
+    datasource: {
+      uid: 'fictional-failing-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
+    profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
 
@@ -363,7 +388,12 @@ test('env: элемент перечня namespace не объект не рон
         raw: {},
       }),
     },
-    datasource: { uid: 'fictional-env-source', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
+    datasource: {
+      uid: 'fictional-env-source',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
     profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { ESLint, type Linter } from 'eslint';
 
-const configModule = (await import('../eslint.config.js')) as unknown as {
+const configModule = (await import('../eslint.config.mjs')) as unknown as {
   buildConfig: (ownerPaths: string[]) => Linter.Config[];
 };
 const eslint = new ESLint({

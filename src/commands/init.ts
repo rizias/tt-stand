@@ -19,10 +19,7 @@ function toolsFrom(names: string): InitTool[] {
   return tools as InitTool[];
 }
 
-export async function runInitCommand(
-  projectDir: string,
-  forFlag: string | undefined,
-): Promise<ToolResponse> {
+export async function runInitCommand(projectDir: string, forFlag: string | undefined): Promise<ToolResponse> {
   const tools = forFlag === undefined ? undefined : toolsFrom(forFlag);
   const root = resolve(projectDir);
   if (!existsSync(root) || !statSync(root).isDirectory()) {
@@ -39,8 +36,6 @@ export async function runInitCommand(
     incomplete: skipped,
     incompleteReasons: skipped ? [INCOMPLETENESS_REASONS.skillCopySkipped] : [],
     errorClass: skipped ? 'skill_copy_skipped' : null,
-    error: skipped
-      ? report.skipped.map((copy) => `${copy.path}: ${copy.message ?? copy.reason}`).join('; ')
-      : null,
+    error: skipped ? report.skipped.map((copy) => `${copy.path}: ${copy.message ?? copy.reason}`).join('; ') : null,
   };
 }

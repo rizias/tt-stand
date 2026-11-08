@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { runK8sCommand } from '../src/commands/k8s.ts';
+import { classifyK8sError } from '../src/k8s/errors.ts';
 import { resolveResource } from '../src/k8s/discovery.ts';
 import { resolveKubeconfig } from '../src/k8s/kubeconfig.ts';
 import { K8sHttpError, K8sSession, type K8sSessionLike } from '../src/k8s/session.ts';
-import type { Profile } from '../src/profile.ts';
+import { parseProfile, type Profile } from '../src/profile.ts';
 
 function temporaryDirectory(): string {
   return mkdtempSync(join(tmpdir(), 'tt-stand-kubeconfig-'));
@@ -15,15 +18,132 @@ function temporaryDirectory(): string {
 
 function profileFixture(overrides: Partial<Profile> = {}): Profile {
   return {
-    name: 'default',
-    path: 'C:/fictional/profiles/default/profile.json',
-    grafana: null,
-    kubernetes: { kubeconfig: 'C:\\fictional\\kubeconfig.yaml', context: null },
-    namespaceScope: null,
-    repositoryRoots: [],
+    ...parseProfile(
+      { kubernetes: { kubeconfig: 'fictional-kubeconfig.yaml' } },
+      'default',
+      join(import.meta.dirname, 'fictional-profile.json'),
+      join(import.meta.dirname, 'fictional-credentials.json'),
+    ),
     ...overrides,
   };
 }
+
+test('ошибка отсутствующего контейнера не классифицируется как отсутствие предыдущего лога', () => {
+  const error = classifyK8sError(new K8sHttpError(400, 'Bad Request', 'container missing not found in pod'), {
+    podName: 'fictional-pod',
+    previous: true,
+  });
+  assert.equal(error.errorClass, 'k8s_upstream_error');
+});
+
+test('неверный селектор предыдущего лога сохраняет класс upstream_error', () => {
+  const error = classifyK8sError(new K8sHttpError(400, 'Bad Request', 'previous log selector invalid'), {
+    previous: true,
+  });
+  assert.equal(error.errorClass, 'k8s_upstream_error');
+});
+
+test('Kubernetes не возвращает отражённый сервером секрет в диагностике отказа', () => {
+  const error = classifyK8sError(new K8sHttpError(401, 'Unauthorized', 'synthetic-secret'));
+  assert.ok(!error.message.includes('synthetic-secret'));
+  assert.equal(error.errorClass, 'k8s_upstream_error');
+});
+
+test('ошибка Kubernetes сохраняет ответ API и скрывает отражённый токен', async () => {
+  const token = 'synthetic"k8s-token';
+  const server = createServer((request, response) => {
+    const status = request.url === '/unauthorized' ? 401 : 500;
+    const message =
+      request.url === '/secret'
+        ? token
+        : request.url === '/unauthorized'
+          ? 'authentication rejected'
+          : 'quota exceeded';
+    response.writeHead(status, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ message }));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const directory = temporaryDirectory();
+  const path = join(directory, 'kubeconfig.yaml');
+  writeFileSync(
+    path,
+    [
+      'apiVersion: v1',
+      'kind: Config',
+      'clusters:',
+      '  - name: synthetic-cluster',
+      '    cluster:',
+      `      server: http://127.0.0.1:${address.port}`,
+      '      insecure-skip-tls-verify: true',
+      'users:',
+      '  - name: synthetic-user',
+      '    user:',
+      `      token: ${JSON.stringify(token)}`,
+      'contexts:',
+      '  - name: synthetic-context',
+      '    context:',
+      '      cluster: synthetic-cluster',
+      '      user: synthetic-user',
+      'current-context: synthetic-context',
+    ].join('\n'),
+  );
+  try {
+    const session = new K8sSession(path);
+    await assert.rejects(
+      () => session.getJson('/normal'),
+      (cause: K8sHttpError) => classifyK8sError(cause).message.includes('quota exceeded'),
+    );
+    await assert.rejects(
+      () => session.getJson('/secret'),
+      (cause: K8sHttpError) => !classifyK8sError(cause).message.includes(token),
+    );
+    await assert.rejects(
+      () => session.getJson('/unauthorized'),
+      (cause: K8sHttpError) => classifyK8sError(cause).message.includes('authentication rejected'),
+    );
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('объект в поле message отказа Kubernetes не ломает классификацию', () => {
+  const body = JSON.stringify({ message: { toString: 0 } });
+  const error = classifyK8sError(new K8sHttpError(500, 'Error', body));
+  assert.equal(error.errorClass, 'k8s_upstream_error');
+});
+
+test('отказ доступа Kubernetes называет ресурс и namespace без тела ответа', async () => {
+  const session: K8sSessionLike = {
+    metadata: {
+      kubeconfig: 'fictional-kubeconfig.yaml',
+      kubeconfigSource: 'config',
+      context: 'fictional-context',
+      contextSource: 'kubeconfig',
+      cluster: 'fictional-cluster',
+      defaultNamespace: 'fictional-ns',
+    },
+    lastRequest: 'GET /api/v1/namespaces/fictional-ns/pods/pod-a/log',
+    async getJson() {
+      throw new Error('unexpected JSON request');
+    },
+    async getText() {
+      throw new K8sHttpError(403, 'Forbidden', 'synthetic-secret');
+    },
+  };
+  const response = await runK8sCommand(
+    profileFixture(),
+    { action: 'log', pod: 'pod-a', namespace: 'fictional-ns', container: null, previous: false },
+    () => session,
+  );
+  assert.equal(response.errorClass, 'k8s_access_forbidden');
+  assert.match(response.error ?? '', /pods\/log/u);
+  assert.match(response.error ?? '', /fictional-ns/u);
+  assert.ok(!response.error?.includes('synthetic-secret'));
+});
 
 test('каталог с одним kubeconfig-файлом разрешается в этот файл', () => {
   const root = temporaryDirectory();
@@ -54,10 +174,7 @@ test('каталог с несколькими kubeconfig-файлами пер�
       () => resolveKubeconfig(root, undefined, join(root, 'unused')),
       (error: Error & { errorClass?: string; partialPayload?: unknown }) => {
         assert.equal(error.errorClass, 'kubeconfig_ambiguous');
-        assert.deepEqual((error.partialPayload as { candidates: string[] }).candidates, [
-          first,
-          second,
-        ]);
+        assert.deepEqual((error.partialPayload as { candidates: string[] }).candidates, [first, second]);
         assert.match(error.message, /kubernetes\.kubeconfig/u);
         return true;
       },
@@ -173,7 +290,7 @@ test('запрошенный namespace вне области отвергает�
   assert.equal(response.errorClass, 'namespace_out_of_scope');
   assert.match(response.error ?? '', /prod-1/);
   assert.match(response.error ?? '', /default/);
-  assert.deepEqual((response.echo as Record<string, unknown>).namespaceScope, ['stand-*']);
+  assert.deepEqual(response.echo.namespaceScope, ['stand-*']);
 });
 
 function listSession(items: unknown[]): K8sSessionLike {
@@ -207,7 +324,7 @@ test('запрошенный namespace в области — команда вы
     () => listSession([]),
   );
   assert.equal(response.ok, true);
-  const echo = response.echo as Record<string, unknown>;
+  const echo = response.echo;
   assert.equal(echo.profile, 'default');
   assert.deepEqual(echo.namespaceScope, ['stand-*']);
   assert.equal(echo.namespace, 'stand-1');
@@ -260,9 +377,9 @@ test('отсутствие лога предыдущего запуска воз
     previous: true,
     logAvailable: false,
   });
-  assert.equal((response.echo as Record<string, unknown>).context, 'fictional-context');
-  assert.equal((response.echo as Record<string, unknown>).namespace, 'fictional-ns');
-  assert.equal((response.echo as Record<string, unknown>).previous, true);
+  assert.equal(response.echo.context, 'fictional-context');
+  assert.equal(response.echo.namespace, 'fictional-ns');
+  assert.equal(response.echo.previous, true);
 });
 
 function historySession(items: unknown[]): K8sSessionLike {
@@ -373,7 +490,7 @@ test('отсутствие ревизий — честный неполный о
   assert.match(response.incompleteReasons.join(' '), /история выкаток недоступна/);
 });
 
-function discoverySession(routes: Record<string, unknown>, failing: Record<string, number> = {}) {
+function discoverySession(routes: Record<string, unknown>, failing: Record<string, number> = {}): K8sSessionLike {
   return {
     metadata: {
       kubeconfig: 'k',
@@ -467,5 +584,23 @@ test('ненайденный вид при недоступной группе �
   await assert.rejects(
     () => resolveResource(session, 'deployments'),
     (error: Error & { errorClass?: string }) => error.errorClass === 'k8s_upstream_error',
+  );
+});
+
+test('ошибка обнаружения ресурсов сохраняет ответ API Kubernetes', async () => {
+  const base = discoverySession({ '/api': { versions: ['v1'] }, '/apis': { groups: [] } });
+  const session: K8sSessionLike = {
+    ...base,
+    async getJson(path: string): Promise<unknown> {
+      if (path === '/api/v1') {
+        throw new K8sHttpError(500, 'Internal Server Error', '{"message":"quota exceeded"}');
+      }
+      return base.getJson(path);
+    },
+  };
+  await assert.rejects(
+    () => resolveResource(session, 'pods'),
+    (error: Error & { errorClass?: string }) =>
+      error.errorClass === 'k8s_upstream_error' && error.message.includes('quota exceeded'),
   );
 });

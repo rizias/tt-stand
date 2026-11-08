@@ -10,18 +10,12 @@ export function readQueryFile(path: string): string {
   } catch (cause) {
     const error = cause as NodeJS.ErrnoException;
     const reason = error.code === 'ENOENT' ? 'файл не найден' : error.message;
-    throw new ToolError(
-      'bad_request',
-      `Файл выражения запроса не прочитан: ${resolved} (${reason}).`,
-    );
+    throw new ToolError('bad_request', `Файл выражения запроса не прочитан: ${resolved} (${reason}).`);
   }
   try {
     return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   } catch {
-    throw new ToolError(
-      'bad_request',
-      `Файл выражения запроса не прочитан: ${resolved} (файл не в кодировке UTF-8).`,
-    );
+    throw new ToolError('bad_request', `Файл выражения запроса не прочитан: ${resolved} (файл не в кодировке UTF-8).`);
   }
 }
 
@@ -30,10 +24,7 @@ export interface ResolvedQuery {
   queryFile: string | null;
 }
 
-export function resolveQuery(
-  query: string | undefined,
-  queryFile: string | undefined,
-): ResolvedQuery {
+export function resolveQuery(query: string | undefined, queryFile: string | undefined): ResolvedQuery {
   if (query !== undefined && queryFile !== undefined) {
     throw new ToolError(
       'bad_request',

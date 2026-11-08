@@ -1,7 +1,7 @@
 import type { Credentials } from './credentials.ts';
 import type { Datasource } from './datasource.ts';
 import { ToolError } from './errors.ts';
-import { bodyDescription, GrafanaTransport } from './grafanaTransport.ts';
+import { GrafanaTransport, type RequestObserver } from './grafanaTransport.ts';
 
 export type { Datasource } from './datasource.ts';
 
@@ -24,6 +24,7 @@ export function fieldValueNames(values: unknown[]): string[] {
 export interface GrafanaClientOptions {
   credentials: Credentials;
   timeoutSeconds: number | null;
+  observer?: RequestObserver;
 }
 
 export interface LogRecord {
@@ -60,16 +61,8 @@ export class GrafanaClient {
     return `POST /${path} ${params.toString()}`;
   }
 
-  async queryLogs(
-    datasource: Datasource,
-    params: URLSearchParams,
-    userLimit: number | null,
-  ): Promise<StreamResult> {
-    const sent = await this.transport.sendOk(
-      'POST',
-      this.endpoint(datasource, 'select/logsql/query'),
-      params,
-    );
+  async queryLogs(datasource: Datasource, params: URLSearchParams, userLimit: number | null): Promise<StreamResult> {
+    const sent = await this.transport.sendOk('POST', this.endpoint(datasource, 'select/logsql/query'), params);
     try {
       return await this.consumeNdjson(sent.response, userLimit, sent.signal);
     } finally {
@@ -77,26 +70,15 @@ export class GrafanaClient {
     }
   }
 
-  async fieldValues(
-    datasource: Datasource,
-    params: URLSearchParams,
-  ): Promise<{ values: unknown[]; raw: unknown }> {
-    const sent = await this.transport.sendOk(
-      'POST',
-      this.endpoint(datasource, 'select/logsql/field_values'),
-      params,
-    );
+  async fieldValues(datasource: Datasource, params: URLSearchParams): Promise<{ values: unknown[]; raw: unknown }> {
+    const sent = await this.transport.sendOk('POST', this.endpoint(datasource, 'select/logsql/field_values'), params);
     try {
-      const parsed = await this.transport.readJsonBody(
-        sent.response,
-        sent.signal,
-        'Ответ field_values',
-      );
+      const parsed = await this.transport.readJsonBody(sent.response, sent.signal, 'Ответ field_values');
       const body = parsed.value as { values?: unknown } | null;
       if (!Array.isArray(body?.values)) {
         throw new ToolError(
           'upstream_error',
-          `Ответ field_values не содержит перечня значений: это отказ источника, а не пустой результат. Тело ответа: ${bodyDescription(parsed.body)}`,
+          `Ответ field_values не содержит перечня значений: это отказ источника, а не пустой результат. Тело ответа: ${this.transport.describeBody(parsed.body)}`,
         );
       }
       return { values: body.values.map(fieldValue), raw: body };
@@ -160,7 +142,7 @@ export class GrafanaClient {
         );
       }
       aborted = true;
-      abortReason = (cause as Error).message;
+      abortReason = this.transport.errorDescription(cause);
     }
 
     return {

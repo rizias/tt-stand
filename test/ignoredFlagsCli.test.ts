@@ -3,7 +3,7 @@ import { createServer, type Server } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { homeEnv, tt } from './ttRunner.ts';
 
 function workspace(): string {
@@ -72,10 +72,7 @@ test('metrics query --limit 1: лимит не применяется, ряды 
     assert.equal(parsed.ok, true);
     assert.equal(parsed.data.result.length, 3);
     assert.deepEqual(parsed.echo.ignoredFlags, ['--limit']);
-    assert.equal(
-      parsed.echo.ignoredFlagsNote,
-      'эти флаги команда не применяет: они не повлияли на результат',
-    );
+    assert.equal(parsed.echo.ignoredFlagsNote, 'эти флаги команда не применяет: они не повлияли на результат');
   } finally {
     server.close();
     rmSync(home, { recursive: true, force: true });
@@ -113,10 +110,7 @@ test('metrics query без лишних флагов: ignoredFlags пуст, ign
   const { url, server } = await startFakeMetricsServer();
   try {
     installation(home, url);
-    const result = await tt(
-      ['metrics', 'query', '--query', 'up', '--start', '-1h', '--end', 'now'],
-      homeEnv(home),
-    );
+    const result = await tt(['metrics', 'query', '--query', 'up', '--start', '-1h', '--end', 'now'], homeEnv(home));
     assert.equal(result.code, 0, result.stdout);
     const parsed = JSON.parse(result.stdout) as {
       echo: { ignoredFlags: string[]; ignoredFlagsNote: string | null };
@@ -136,18 +130,7 @@ test('logs search --query-file: файл не читается, ignoredFlags н�
     mkdirSync(home, { recursive: true });
     writeFileSync(queryFilePath, '*');
     const result = await tt(
-      [
-        'logs',
-        'search',
-        '--value',
-        'x',
-        '--query-file',
-        queryFilePath,
-        '--start',
-        '-1h',
-        '--end',
-        'now',
-      ],
+      ['logs', 'search', '--value', 'x', '--query-file', queryFilePath, '--start', '-1h', '--end', 'now'],
       homeEnv(home),
     );
     const parsed = JSON.parse(result.stdout) as {

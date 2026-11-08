@@ -1,5 +1,6 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { atomicWriteFile } from './lock.ts';
 import type { ToolResponse } from './response.ts';
 
 export const RUN_VARIABLE = 'TT_STAND_RUN';
@@ -24,8 +25,8 @@ export function currentOrigin(environment: NodeJS.ProcessEnv = process.env): Jou
   };
 }
 
-export function journalEntryPath(directory: string, at: string, origin: JournalOrigin): string {
-  return join(directory, `${at.replace(/[:.]/gu, '-')}-${origin.pid}.json`);
+function journalEntryPath(directory: string, at: string, origin: JournalOrigin): string {
+  return join(directory, `${at.replace(/[:.]/gu, '-')}-${origin.pid}-${randomUUID()}.json`);
 }
 
 export function writeJournalEntry(
@@ -37,12 +38,9 @@ export function writeJournalEntry(
   profile: string | null = null,
 ): JournalOutcome {
   const file = journalEntryPath(directory, at, origin);
+  response.echo.journal = file;
   try {
-    mkdirSync(directory, { recursive: true });
-    writeFileSync(file, `${JSON.stringify({ at, origin, profile, invocation, response }, null, 2)}\n`, {
-      encoding: 'utf8',
-      flag: 'wx',
-    });
+    atomicWriteFile(file, `${JSON.stringify({ at, origin, profile, invocation, response }, null, 2)}\n`);
     return { file, failure: null };
   } catch (cause) {
     return { file, failure: `запись журнала ${file} не создана: ${(cause as Error).message}` };

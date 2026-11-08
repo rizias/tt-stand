@@ -1,18 +1,18 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { join } from 'node:path';
+import { test } from 'vitest';
 import { runK8sCommand } from '../src/commands/k8s.ts';
 import type { K8sSessionLike } from '../src/k8s/session.ts';
-import type { Profile } from '../src/profile.ts';
+import { parseProfile, type Profile } from '../src/profile.ts';
 
 function profileFixture(overrides: Partial<Profile> = {}): Profile {
   return {
-    name: 'default',
-    path: 'C:/fictional/profiles/default/profile.json',
-    grafana: null,
-    kubernetes: { kubeconfig: 'C:\\fictional\\kubeconfig.yaml', context: null },
-    namespaceScope: null,
-    repositoryRoots: [],
-    journalDirectory: 'C:/fictional/profiles/default/journal',
+    ...parseProfile(
+      { kubernetes: { kubeconfig: 'fictional-kubeconfig.yaml' } },
+      'default',
+      join(import.meta.dirname, 'fictional-profile.json'),
+      join(import.meta.dirname, 'fictional-credentials.json'),
+    ),
     ...overrides,
   };
 }
@@ -66,7 +66,7 @@ test('namespace из умолчания внутри области выполн
     () => sessionFixture('stand-a'),
   );
   assert.equal(response.ok, true);
-  assert.equal((response.echo as Record<string, unknown>).namespace, 'stand-a');
+  assert.equal(response.echo.namespace, 'stand-a');
 });
 
 test('отказ называет умолчание как источник имени namespace', async () => {

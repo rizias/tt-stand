@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -12,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, test } from 'vitest';
 import { createAsk, type Terminal } from '../src/skills/setup.ts';
 import { installSkills, maybeRefreshSkills } from '../src/skills/updater.ts';
 import type { Ask, TargetOption } from '../src/skills/updaterState.ts';
@@ -96,9 +97,22 @@ test('установка скилла пишет реестр и копию, р�
     readFileSync(join(destination(), 'SKILL.md'), 'utf8'),
     readFileSync(join(template(), 'SKILL.md'), 'utf8'),
   );
+  const shipped = [
+    'SKILL.md',
+    ...readdirSync(join(template(), 'references'), { recursive: true })
+      .filter((name) => statSync(join(template(), 'references', String(name))).isFile())
+      .map((name) => `references/${String(name).replaceAll('\\', '/')}`),
+  ].sort();
+  for (const relative of shipped) {
+    assert.equal(
+      readFileSync(join(destination(), relative), 'utf8'),
+      readFileSync(join(template(), relative), 'utf8'),
+      relative,
+    );
+  }
   const registry = readRegistry();
   assert.equal(registry.version, '0.1.0');
-  assert.deepEqual(registry.skills['tt-stand'][0], { path: slashDestination(), files: ['SKILL.md'] });
+  assert.deepEqual(registry.skills['tt-stand'][0], { path: slashDestination(), files: shipped });
 });
 
 test('без подтверждения установка скилла не создаёт копию и реестр', async () => {
@@ -157,7 +171,7 @@ test('обновление сохраняет чужой файл, которо�
   assert.equal(readFileSync(foreign, 'utf8'), 'чужой файл');
 });
 
-test('диалог предлагает проект и свой путь, цели «глобально» нет', async () => {
+test('диалог выбирает каждый каталог отдельно, несколько только по явным номерам', async () => {
   const prompts: string[] = [];
   const targetOptions: TargetOption[] = [
     { id: 'global', label: 'global', roots: ['/global'] },
@@ -177,31 +191,44 @@ test('диалог предлагает проект и свой путь, це�
 
   const { result, text } = await captureStderr(async () => ({
     first: await choose(['1']),
-    second: await choose(['2', customRoot]),
-    third: await choose(['']),
+    second: await choose(['2']),
+    third: await choose(['3']),
+    custom: await choose(['4', customRoot]),
+    multiple: await choose(['2,3']),
+    cancelled: await choose(['']),
   }));
-  assert.deepEqual(result.first, [{ id: 'project' }]);
-  assert.deepEqual(result.second, [{ id: 'custom', root: customRoot }]);
-  assert.deepEqual(result.third, []);
+  assert.deepEqual(result.first, [{ id: 'custom', root: '/global' }]);
+  assert.deepEqual(result.second, [{ id: 'custom', root: join(project, '.claude', 'skills') }]);
+  assert.deepEqual(result.third, [{ id: 'custom', root: join(project, '.agents', 'skills') }]);
+  assert.deepEqual(result.custom, [{ id: 'custom', root: customRoot }]);
+  assert.deepEqual(result.multiple, [...result.second, ...result.third]);
+  assert.deepEqual(result.cancelled, []);
   const shown = `${prompts.join('\n')}\n${text}`;
-  assert.doesNotMatch(shown, /global/i);
-  assert.doesNotMatch(shown, /глобально/i);
+  assert.match(shown, /\/global/);
+  assert.match(shown, /глобально/);
   assert.ok(shown.includes(project));
   assert.ok(shown.includes(join(project, '.claude', 'skills')));
   assert.ok(shown.includes(join(project, '.agents', 'skills')));
 });
 
 test('подтверждение печатает каждый путь и принимает только y или Y', async () => {
-  const dialog = createAsk(stubTerminal(['y', 'Y', 'n', 'yes'], []), project);
   const paths = [join(project, 'one'), join(project, 'two')];
-  const { result, text } = await captureStderr(async () => [
-    await dialog.confirm({ message: 'install?', paths }),
-    await dialog.confirm({ message: 'install?', paths }),
-    await dialog.confirm({ message: 'install?', paths }),
-    await dialog.confirm({ message: 'install?', paths }),
-  ]);
+  const { result, text } = await captureStderr(() =>
+    Promise.all(
+      ['y', 'Y', 'n', 'yes'].map((answer) =>
+        createAsk(stubTerminal([answer], []), project).confirm({ message: 'install?', paths }),
+      ),
+    ),
+  );
   assert.deepEqual(result, [true, true, false, false]);
   for (const target of paths) assert.ok(text.includes(target));
+});
+
+test('повторное подтверждение конфликта отклоняется при явном выборе каталогов', async () => {
+  const dialog = createAsk(stubTerminal([], []), project, ['claude']);
+  const request = { message: 'install?', paths: [destination()] };
+  assert.equal(await dialog.confirm(request), true);
+  assert.equal(await dialog.confirm(request), false);
 });
 
 test('актуальная копия не переписывается', async () => {

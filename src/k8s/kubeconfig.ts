@@ -43,10 +43,7 @@ function statKubeconfig(path: string): import('node:fs').Stats {
   try {
     return statSync(path);
   } catch (cause) {
-    throw new ToolError(
-      'kubeconfig_missing',
-      `Kubeconfig недоступен: ${path}: ${(cause as Error).message}`,
-    );
+    throw new ToolError('kubeconfig_missing', `Kubeconfig недоступен: ${path}: ${(cause as Error).message}`);
   }
 }
 
@@ -75,21 +72,14 @@ export function resolveKubeconfig(
   environmentValue: string | undefined = process.env.KUBECONFIG,
   standardPath: string = join(homedir(), '.kube', 'config'),
 ): ResolvedKubeconfig {
-  const source: KubeconfigSource = configured
-    ? 'config'
-    : environmentValue
-      ? 'KUBECONFIG'
-      : 'standard';
+  const source: KubeconfigSource = configured ? 'config' : environmentValue ? 'KUBECONFIG' : 'standard';
   const raw = configured ?? environmentValue ?? standardPath;
   const path = normalizePath(source === 'KUBECONFIG' ? singleEnvironmentPath(raw) : raw);
 
   const stat = statKubeconfig(path);
   if (stat.isFile()) return { path, source };
   if (!stat.isDirectory()) {
-    throw new ToolError(
-      'kubeconfig_invalid',
-      `Путь kubeconfig не является файлом или каталогом: ${path}.`,
-    );
+    throw new ToolError('kubeconfig_invalid', `Путь kubeconfig не является файлом или каталогом: ${path}.`);
   }
   return { path: fileInDirectory(path), source };
 }

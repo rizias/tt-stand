@@ -1,6 +1,7 @@
 # metrics-access Specification
 
 ## Purpose
+
 Чтение метрик через посредника источников данных Grafana по стандартному HTTP API
 Prometheus: ряды за период, значения на момент времени, справочник меток и рядов.
 Параметры уходят на сервер как даны, ответ сервера отдаётся как есть, а неполнота
@@ -15,13 +16,13 @@ Prometheus: ряды за период, значения на момент вр�
 Grafana по адресу `/api/datasources/proxy/uid/<uid>/` с учётными данными профиля,
 теми же, что у команд логов.
 
-| Команда | Метод и путь | Параметры |
-|---|---|---|
-| `metrics query` | `POST api/v1/query_range` | `--query`, `--start`, `--end`, `--step` |
-| `metrics instant` | `POST api/v1/query` | `--query`, `--time` |
-| `metrics labels` | `POST api/v1/labels` | `--match` (несколько), `--start`, `--end` |
-| `metrics labels --label <имя>` | `GET api/v1/label/<имя>/values` | `--match` (несколько), `--start`, `--end` |
-| `metrics series` | `POST api/v1/series` | `--match` (одно или несколько), `--start`, `--end` |
+| Команда                        | Метод и путь                    | Параметры                                          |
+| ------------------------------ | ------------------------------- | -------------------------------------------------- |
+| `metrics query`                | `POST api/v1/query_range`       | `--query`, `--start`, `--end`, `--step`            |
+| `metrics instant`              | `POST api/v1/query`             | `--query`, `--time`                                |
+| `metrics labels`               | `POST api/v1/labels`            | `--match` (несколько), `--start`, `--end`          |
+| `metrics labels --label <имя>` | `GET api/v1/label/<имя>/values` | `--match` (несколько), `--start`, `--end`          |
+| `metrics series`               | `POST api/v1/series`            | `--match` (одно или несколько), `--start`, `--end` |
 
 Обязательны: `--query` либо `--query-file` у `metrics query` и `metrics instant`;
 `--start` и `--end` у `metrics query`; хотя бы один `--match` у `metrics series`.
@@ -196,6 +197,9 @@ Grafana по адресу `/api/datasources/proxy/uid/<uid>/` с учётным�
 с ненулевым кодом и классом ошибки `metrics_query_rejected`. Текст SHALL содержать
 код состояния HTTP, значения полей `errorType` и `error` дословно, а следом —
 тело ответа целиком, чтобы пояснение сервера в других полях тела не терялось.
+Если диагностический текст содержит загруженный для подключения секрет, вместо него
+SHALL выводиться безопасное сообщение по требованию `output-contract`. Это исключение
+относится ко всем сценариям вывода тела отказа ниже.
 Этот класс охватывает и ошибку в выражении, и превышение предела точек или рядов,
 заданного сервером: инструмент причину не угадывает, её называет текст сервера.
 

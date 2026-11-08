@@ -26,9 +26,7 @@ async function runGet(
       `Ресурс ${resolved.resource.name} является кластерным: --namespace к нему неприменим.`,
     );
   }
-  const namespace = resolved.resource.namespaced
-    ? (command.namespace ?? session.metadata.defaultNamespace)
-    : null;
+  const namespace = resolved.resource.namespaced ? (command.namespace ?? session.metadata.defaultNamespace) : null;
   if (namespace !== null) guard(namespace);
   const data = await session.getJson(resourcePath(resolved.resource, namespace, command.name));
   const qualified = resolved.resource.group
@@ -99,16 +97,10 @@ async function runLog(
   };
 }
 
-async function workloadUid(
-  session: K8sSessionLike,
-  namespace: string,
-  workload: string,
-): Promise<string> {
+async function workloadUid(session: K8sSessionLike, namespace: string, workload: string): Promise<string> {
   const resource = await resolveResource(session, 'deployments');
   try {
-    const object = (await session.getJson(
-      resourcePath(resource.resource, namespace, workload),
-    )) as {
+    const object = (await session.getJson(resourcePath(resource.resource, namespace, workload))) as {
       metadata?: { uid?: string };
     };
     return String(object.metadata?.uid ?? '');
@@ -131,8 +123,7 @@ async function runHistory(
 
   const imageChanges = revisions
     .map((revision, index) =>
-      index === 0 ||
-      JSON.stringify(revision.images) !== JSON.stringify(revisions[index - 1]?.images)
+      index === 0 || JSON.stringify(revision.images) !== JSON.stringify(revisions[index - 1]?.images)
         ? { revision: revision.revision, createdAt: revision.createdAt, images: revision.images }
         : null,
     )

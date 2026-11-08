@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { computeIgnoredFlags, IGNORED_FLAGS_NOTE } from '../src/cli/ignoredFlags.ts';
 
 test('metrics query --limit: лимит эта команда не читает', () => {
@@ -56,16 +56,7 @@ test('logs query: все переданные флаги применяются 
 });
 
 test('metrics instant: start и end этой командой не читаются', () => {
-  const ignored = computeIgnoredFlags([
-    'metrics',
-    'instant',
-    '--query',
-    'up',
-    '--start',
-    '-1h',
-    '--end',
-    'now',
-  ]);
+  const ignored = computeIgnoredFlags(['metrics', 'instant', '--query', 'up', '--start', '-1h', '--end', 'now']);
   assert.deepEqual(ignored, ['--start', '--end']);
 });
 
@@ -104,8 +95,37 @@ test('форма --flag=значение распознаётся так же, �
 });
 
 test('IGNORED_FLAGS_NOTE — фиксированный текст пояснения', () => {
-  assert.equal(
-    IGNORED_FLAGS_NOTE,
-    'эти флаги команда не применяет: они не повлияли на результат',
-  );
+  assert.equal(IGNORED_FLAGS_NOTE, 'эти флаги команда не применяет: они не повлияли на результат');
+});
+
+test('config init применяет --force', () => {
+  assert.deepEqual(computeIgnoredFlags(['config', 'init', '--force', '--profile', 'example']), []);
+});
+
+test.each([
+  ['logs', 'query'],
+  ['logs', 'search'],
+  ['logs', 'http'],
+  ['logs', 'fields'],
+  ['metrics', 'query'],
+  ['metrics', 'instant'],
+  ['metrics', 'labels'],
+  ['metrics', 'series'],
+  ['k8s', 'get'],
+  ['k8s', 'log'],
+  ['k8s', 'events'],
+  ['k8s', 'pods'],
+  ['k8s', 'history'],
+  ['batch'],
+  ['env'],
+])('%s %s отмечает server и database как неприменимые', (group, action?: string) => {
+  const command = action === undefined ? [group] : [group, action];
+  assert.deepEqual(computeIgnoredFlags([...command, '--server', 'fixture', '--database=fixture']), [
+    '--server',
+    '--database',
+  ]);
+});
+
+test('mongo применяет server и database', () => {
+  assert.deepEqual(computeIgnoredFlags(['mongo', '--server', 'fixture', '--database=fixture']), []);
 });

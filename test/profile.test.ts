@@ -1,15 +1,27 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { parseProfile, requireGrafana, requireKubernetes } from '../src/profile.ts';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'vitest';
+import { buildProfileTemplate, parseProfile, requireGrafana, requireKubernetes } from '../src/profile.ts';
 import { normalizePath } from '../src/paths.ts';
 
 const PATH = 'C:/fictional/profiles/broken/profile.json';
 const CREDENTIALS_DEFAULT = 'C:/fictional/profiles/broken/credentials.json';
 
+test('пустая строка каталога журнала сохраняет прежнее разрешение относительно cwd', () => {
+  const profile = parseProfile({ journal: { directory: '' } }, 'full', PATH, CREDENTIALS_DEFAULT);
+  assert.equal(profile.journalDirectory, normalizePath(''));
+});
+
+test('шаблон профиля сохраняет пути домашнего каталога через тильду', () => {
+  const template = JSON.parse(buildProfileTemplate(join(homedir(), '.tt-stand', 'profiles', 'default')));
+  assert.equal(template.grafana.credentialsFile, '~/.tt-stand/profiles/default/credentials.json');
+  assert.equal(template.journal.directory, '~/.tt-stand/profiles/default/journal');
+});
+
 test('неверный тип grafana.timeoutSeconds называет профиль и поле', () => {
   assert.throws(
-    () =>
-      parseProfile({ grafana: { timeoutSeconds: 'быстро' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    () => parseProfile({ grafana: { timeoutSeconds: 'быстро' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'config_invalid' &&
       /broken/.test(error.message) &&
@@ -28,16 +40,13 @@ test('repositoryRoots не списком строк называет профи
   assert.throws(
     () => parseProfile({ repositoryRoots: 'не список' }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
-      error.errorClass === 'config_invalid' &&
-      /broken/.test(error.message) &&
-      /repositoryRoots/.test(error.message),
+      error.errorClass === 'config_invalid' && /broken/.test(error.message) && /repositoryRoots/.test(error.message),
   );
 });
 
 test('kubernetes.context не строкой называет профиль и поле', () => {
   assert.throws(
-    () =>
-      parseProfile({ kubernetes: { context: 7 } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    () => parseProfile({ kubernetes: { context: 7 } }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'config_invalid' &&
       /broken/.test(error.message) &&
@@ -56,7 +65,12 @@ test('без раздела grafana профиль пригоден, но requir
 });
 
 test('без раздела kubernetes профиль пригоден, но requireKubernetes отказывает', () => {
-  const profile = parseProfile({ grafana: { baseUrl: 'https://g.example.invalid' } }, 'grafana-only', PATH, CREDENTIALS_DEFAULT);
+  const profile = parseProfile(
+    { grafana: { baseUrl: 'https://g.example.invalid' } },
+    'grafana-only',
+    PATH,
+    CREDENTIALS_DEFAULT,
+  );
   assert.equal(profile.kubernetes, null);
   assert.throws(
     () => requireKubernetes(profile),
@@ -76,9 +90,7 @@ test('пустой перечень namespaceScope в профиле даёт co
   assert.throws(
     () => parseProfile({ namespaceScope: [] }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
-      error.errorClass === 'config_invalid' &&
-      /broken/.test(error.message) &&
-      /namespaceScope/.test(error.message),
+      error.errorClass === 'config_invalid' && /broken/.test(error.message) && /namespaceScope/.test(error.message),
   );
 });
 
@@ -89,8 +101,7 @@ test('credentialsFile по умолчанию лежит в каталоге п�
 
 test('grafana.metricsDatasourceUid неверного типа даёт config_invalid', () => {
   assert.throws(
-    () =>
-      parseProfile({ grafana: { metricsDatasourceUid: 7 } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    () => parseProfile({ grafana: { metricsDatasourceUid: 7 } }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'config_invalid' &&
       /broken/.test(error.message) &&
@@ -100,8 +111,7 @@ test('grafana.metricsDatasourceUid неверного типа даёт config_i
 
 test('grafana.datasourceUid пустой строкой даёт config_invalid, а не «не задано»', () => {
   assert.throws(
-    () =>
-      parseProfile({ grafana: { datasourceUid: '' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
+    () => parseProfile({ grafana: { datasourceUid: '' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'config_invalid' &&
       /broken/.test(error.message) &&
@@ -111,13 +121,7 @@ test('grafana.datasourceUid пустой строкой даёт config_invalid,
 
 test('grafana.metricsDatasourceUid пустой строкой даёт config_invalid', () => {
   assert.throws(
-    () =>
-      parseProfile(
-        { grafana: { metricsDatasourceUid: '' } },
-        'broken',
-        PATH,
-        CREDENTIALS_DEFAULT,
-      ),
+    () => parseProfile({ grafana: { metricsDatasourceUid: '' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'config_invalid' &&
       /broken/.test(error.message) &&
@@ -137,13 +141,7 @@ test('grafana.datasourceUid значением "." даёт config_invalid', () 
 
 test('grafana.metricsDatasourceUid значением ".." даёт config_invalid', () => {
   assert.throws(
-    () =>
-      parseProfile(
-        { grafana: { metricsDatasourceUid: '..' } },
-        'broken',
-        PATH,
-        CREDENTIALS_DEFAULT,
-      ),
+    () => parseProfile({ grafana: { metricsDatasourceUid: '..' } }, 'broken', PATH, CREDENTIALS_DEFAULT),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'config_invalid' &&
       /broken/.test(error.message) &&

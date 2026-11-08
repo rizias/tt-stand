@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "timezone": "UTC",
+  "panels": [
+    {
+      "kind": "line",
+      "title": "CPU подов",
+      "response": "cpu",
+      "format": "prometheus-matrix",
+      "labelKeys": ["namespace", "pod"],
+      "unit": "cores"
+    }
+  ]
+}

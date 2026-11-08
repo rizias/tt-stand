@@ -1,16 +1,19 @@
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { expectNumber, expectString, expectStringList, expectTable } from './configValues.ts';
+import { type FieldValue, type Server, type ServerKind } from './configSchemas.ts';
+import { expectString, expectStringList, expectTable } from './configValues.ts';
 import { ToolError } from './errors.ts';
 import { normalizePath } from './paths.ts';
+import { legacyGrafana, legacyKubernetes } from './profileLegacy.ts';
+import { parseServers } from './profileServers.ts';
 import { type NamespaceScope, parseScope } from './scope.ts';
 
 export interface GrafanaAccess {
   baseUrl: string | null;
-  credentialsFile: string;
   timeoutSeconds: number | null;
   datasourceUid: string | null;
   metricsDatasourceUid: string | null;
+  credentialsFile: string;
 }
 
 export interface KubernetesAccess {
@@ -18,9 +21,31 @@ export interface KubernetesAccess {
   context: string | null;
 }
 
+export interface MongoAccess {
+  profileName: string;
+  serverName: string;
+  database: string;
+  uri: string;
+  credentialsFile: string;
+  sshServerName: string;
+  timeoutSeconds: number;
+  ssh: {
+    host: string;
+    port: number;
+    username: string;
+    privateKeyPath: string;
+    knownHostsPath: string;
+    timeoutSeconds: number;
+  };
+}
+
 export interface Profile {
   name: string;
   path: string;
+  servers: Record<string, Server>;
+  serverSources: Record<string, Record<string, FieldValue>>;
+  fieldSources: Record<string, FieldValue>;
+  credentialsFile: string;
   grafana: GrafanaAccess | null;
   kubernetes: KubernetesAccess | null;
   namespaceScope: NamespaceScope;
@@ -32,123 +57,86 @@ export function defaultJournalDirectory(profilePath: string): string {
   return join(dirname(profilePath), 'journal');
 }
 
-function parseJournalDirectory(
-  raw: Record<string, unknown>,
-  location: string,
-  profilePath: string,
-): string {
-  const journal = expectTable(raw.journal, 'journal', location);
-  if (journal?.directory === undefined) return defaultJournalDirectory(profilePath);
-  return normalizePath(expectString(journal.directory, 'journal.directory', location));
-}
-
-function describe(name: string, path: string): string {
-  return `профиле ${name} (${path})`;
-}
-
-function parseOptionalDatasourceUid(
-  value: unknown,
-  field: string,
-  location: string,
-): string | null {
-  if (value === undefined) return null;
-  const parsed = expectString(value, field, location);
-  if (parsed.length === 0 || parsed === '.' || parsed === '..') {
-    throw new ToolError(
-      'config_invalid',
-      `Поле ${field} в ${location} не может быть пустой строкой, «.» или «..»: ` +
-        `такое значение нельзя закодировать сегментом пути ` +
-        `/api/datasources/proxy/uid/<uid>/.`,
-    );
-  }
-  return parsed;
-}
-
-function parseGrafana(
-  raw: Record<string, unknown>,
-  name: string,
-  path: string,
-  defaultCredentialsFile: string,
-): GrafanaAccess | null {
-  const location = describe(name, path);
-  const table = expectTable(raw.grafana, 'grafana', location);
-  if (table === null) return null;
-
-  const baseUrl =
-    table.baseUrl === undefined ? null : expectString(table.baseUrl, 'grafana.baseUrl', location);
-  const credentialsFile =
-    table.credentialsFile === undefined
-      ? defaultCredentialsFile
-      : normalizePath(expectString(table.credentialsFile, 'grafana.credentialsFile', location));
-  const timeoutSeconds =
-    table.timeoutSeconds === undefined
-      ? null
-      : expectNumber(table.timeoutSeconds, 'grafana.timeoutSeconds', location);
-  if (timeoutSeconds !== null && timeoutSeconds <= 0) {
-    throw new ToolError(
-      'config_invalid',
-      `Поле grafana.timeoutSeconds в ${location} должно быть больше нуля, получено ${timeoutSeconds}`,
-    );
-  }
-  const datasourceUid = parseOptionalDatasourceUid(
-    table.datasourceUid,
-    'grafana.datasourceUid',
-    location,
-  );
-  const metricsDatasourceUid = parseOptionalDatasourceUid(
-    table.metricsDatasourceUid,
-    'grafana.metricsDatasourceUid',
-    location,
-  );
-
-  return { baseUrl, credentialsFile, timeoutSeconds, datasourceUid, metricsDatasourceUid };
-}
-
-function parseKubernetes(
-  raw: Record<string, unknown>,
-  name: string,
-  path: string,
-): KubernetesAccess | null {
-  const location = describe(name, path);
-  const table = expectTable(raw.kubernetes, 'kubernetes', location);
-  if (table === null) return null;
-
-  const kubeconfig =
-    table.kubeconfig === undefined
-      ? null
-      : normalizePath(expectString(table.kubeconfig, 'kubernetes.kubeconfig', location));
-  const context =
-    table.context === undefined ? null : expectString(table.context, 'kubernetes.context', location);
-
-  return { kubeconfig, context };
-}
-
 export function parseProfile(
   raw: Record<string, unknown>,
   name: string,
   path: string,
-  defaultCredentialsFile: string,
+  credentialsFile: string,
 ): Profile {
-  const location = describe(name, path);
-  const grafana = parseGrafana(raw, name, path, defaultCredentialsFile);
-  const kubernetes = parseKubernetes(raw, name, path);
+  const location = `профиле ${name} (${path})`;
+  const { servers, sources } = parseServers(raw.servers, path);
+  const grafana = legacyGrafana(raw.grafana, name, path, credentialsFile);
+  const kubernetes = legacyKubernetes(raw.kubernetes, name, path);
   const namespaceScope =
     raw.namespaceScope === undefined ? null : parseScope(raw.namespaceScope, 'namespaceScope', location);
   const repositoryRoots =
     raw.repositoryRoots === undefined
       ? []
       : expectStringList(raw.repositoryRoots, 'repositoryRoots', location).map(normalizePath);
+  const journal = expectTable(raw.journal, 'journal', location) ?? {};
+  const directory =
+    journal.directory === undefined
+      ? defaultJournalDirectory(path)
+      : expectString(journal.directory, 'journal.directory', location);
+  const journalDirectory = normalizePath(directory);
+  return {
+    name,
+    path,
+    servers,
+    serverSources: sources,
+    credentialsFile,
+    grafana,
+    kubernetes,
+    namespaceScope,
+    repositoryRoots,
+    journalDirectory,
+    fieldSources: {
+      namespaceScope: { value: namespaceScope, source: raw.namespaceScope === undefined ? 'default' : 'file' },
+      repositoryRoots: { value: repositoryRoots, source: raw.repositoryRoots === undefined ? 'default' : 'file' },
+      'journal.directory': { value: journalDirectory, source: journal.directory === undefined ? 'default' : 'file' },
+    },
+  };
+}
 
-  const journalDirectory = parseJournalDirectory(raw, location, path);
-
-  return { name, path, grafana, kubernetes, namespaceScope, repositoryRoots, journalDirectory };
+function selectServer<Kind extends ServerKind>(
+  profile: Profile,
+  kind: Kind,
+  name: string | null,
+): {
+  name: string;
+  server: Extract<Server, { kind: Kind }>;
+} {
+  const candidates = Object.entries(profile.servers).filter(
+    ([serverName, server]) => server.kind === kind && (name === null || serverName === name),
+  );
+  if (candidates.length === 0) {
+    throw new ToolError(
+      'profile_incomplete',
+      `В профиле ${profile.name} (${profile.path}) отсутствует требуемый сервер вида ${kind}. ` +
+        'Укажите сервер этого вида через --server или добавьте его в servers.',
+      null,
+      { profile: profile.name },
+    );
+  }
+  if (candidates.length > 1) {
+    throw new ToolError(
+      'profile_ambiguous',
+      `В профиле ${profile.name} несколько серверов вида ${kind}. Укажите --server. ` +
+        `Доступные имена ${candidates.map(([serverName]) => serverName).join(', ')}.`,
+      null,
+      { profile: profile.name },
+    );
+  }
+  const [serverName, server] = candidates[0]!;
+  return { name: serverName, server: server as Extract<Server, { kind: Kind }> };
 }
 
 export function requireGrafana(profile: Profile): GrafanaAccess {
   if (profile.grafana === null) {
     throw new ToolError(
       'profile_incomplete',
-      `В профиле ${profile.name} нет доступа к Grafana: раздел grafana отсутствует в ${profile.path}. Допишите раздел или выберите другой профиль.`,
+      `В профиле ${profile.name} нет доступа к Grafana. Раздел grafana отсутствует в ${profile.path}. ` +
+        'Допишите раздел или выберите другой профиль.',
       null,
       { profile: profile.name },
     );
@@ -160,12 +148,58 @@ export function requireKubernetes(profile: Profile): KubernetesAccess {
   if (profile.kubernetes === null) {
     throw new ToolError(
       'profile_incomplete',
-      `В профиле ${profile.name} нет доступа к кластеру: раздел kubernetes отсутствует в ${profile.path}. Допишите раздел или выберите другой профиль.`,
+      `В профиле ${profile.name} нет доступа к кластеру. Раздел kubernetes отсутствует в ${profile.path}. ` +
+        'Допишите раздел или выберите другой профиль.',
       null,
       { profile: profile.name },
     );
   }
   return profile.kubernetes;
+}
+
+function requiredString(value: string | null, serverName: string, field: string, profile: Profile): string {
+  if (value !== null && value.length > 0) return value;
+  const flag = field === 'defaultDatabase' ? ' либо --database' : '';
+  throw new ToolError(
+    'profile_incomplete',
+    `Заполните servers.${serverName}.${field} в профиле ${profile.name} (${profile.path})${flag}.`,
+    null,
+    { profile: profile.name },
+  );
+}
+
+export function requireMongo(
+  profile: Profile,
+  serverName: string | null = null,
+  database: string | null = null,
+  fallbackDatabase: string | null = null,
+): MongoAccess {
+  const selected = selectServer(profile, 'mongodb', serverName);
+  const server = selected.server;
+  const sshServerName = requiredString(server.sshServer, selected.name, 'sshServer', profile);
+  const ssh = selectServer(profile, 'ssh', sshServerName).server;
+  return {
+    profileName: profile.name,
+    serverName: selected.name,
+    database: requiredString(
+      database ?? server.defaultDatabase ?? fallbackDatabase,
+      selected.name,
+      'defaultDatabase',
+      profile,
+    ),
+    uri: requiredString(server.uri, selected.name, 'uri', profile),
+    credentialsFile: profile.credentialsFile,
+    sshServerName,
+    timeoutSeconds: server.timeoutSeconds,
+    ssh: {
+      host: requiredString(ssh.host, sshServerName, 'host', profile),
+      port: ssh.port,
+      username: requiredString(ssh.username, sshServerName, 'username', profile),
+      privateKeyPath: requiredString(ssh.privateKeyPath, sshServerName, 'privateKeyPath', profile),
+      knownHostsPath: requiredString(ssh.knownHostsPath, sshServerName, 'knownHostsPath', profile),
+      timeoutSeconds: ssh.timeoutSeconds,
+    },
+  };
 }
 
 export function defaultCredentialsFilePath(profileDirectory: string): string {
@@ -178,14 +212,11 @@ function toDisplayPath(path: string): string {
 }
 
 export function buildProfileTemplate(profileDirectory: string): string {
-  return `${JSON.stringify(
-    {
-      grafana: { credentialsFile: toDisplayPath(defaultCredentialsFilePath(profileDirectory)) },
-      kubernetes: { kubeconfig: '~/.kube/config' },
-      repositoryRoots: [],
-      journal: { directory: toDisplayPath(join(profileDirectory, 'journal')) },
-    },
-    null,
-    2,
-  )}\n`;
+  const template = {
+    grafana: { credentialsFile: toDisplayPath(defaultCredentialsFilePath(profileDirectory)) },
+    kubernetes: { kubeconfig: '~/.kube/config' },
+    repositoryRoots: [],
+    journal: { directory: toDisplayPath(join(profileDirectory, 'journal')) },
+  };
+  return `${JSON.stringify(template, null, 2)}\n`;
 }

@@ -1,0 +1,11 @@
+dist
+coverage
+.claude
+node_modules
+package-lock.json
+eslint-suppressions.json
+.agents
+.codex
+.aws
+src/skills/updater*.ts
+scripts

@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { promisify } from 'node:util';
 import { failureResponse } from '../src/cli/failure.ts';
 import { ToolError } from '../src/errors.ts';
@@ -17,15 +17,32 @@ interface Outcome {
   stderr: string;
 }
 
-async function tt(args: string[]): Promise<Outcome> {
+async function tt(args: string[], env = process.env): Promise<Outcome> {
   try {
-    const { stdout, stderr } = await run(process.execPath, [cli, ...args], { encoding: 'utf8' });
+    const { stdout, stderr } = await run(process.execPath, [cli, ...args], { encoding: 'utf8', env });
     return { code: 0, stdout, stderr };
   } catch (cause) {
     const error = cause as { code?: number; stdout?: string; stderr?: string };
     return { code: error.code ?? -1, stdout: error.stdout ?? '', stderr: error.stderr ?? '' };
   }
 }
+
+test('запрещённый MongoDB-запрос отклоняется до чтения конфигурации даже при журналировании', async () => {
+  const { dir, path } = emptyConfig();
+  try {
+    writeFileSync(path, '{ некорректная конфигурация');
+    const result = await tt(['mongo', '--query', '{"insert":"orders","documents":[]}', '--config', path], {
+      ...process.env,
+      HOME: dir,
+      USERPROFILE: dir,
+      TT_STAND_CONFIG: path,
+    });
+    assert.equal(JSON.parse(result.stdout).errorClass, 'bad_request');
+    assert.equal(result.code, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 function emptyConfig(): { dir: string; path: string } {
   const dir = mkdtempSync(join(tmpdir(), 'tt-stand-cli-'));
@@ -93,51 +110,20 @@ test('неизвестный флаг отвергается как ошибка
 });
 
 test('флаг вместо значения не склеивается в значение', async () => {
-  const result = await tt([
-    'logs',
-    'query',
-    '--query',
-    '--human',
-    '--start',
-    '-1h',
-    '--end',
-    'now',
-  ]);
+  const result = await tt(['logs', 'query', '--query', '--human', '--start', '-1h', '--end', 'now']);
   assert.equal(result.code, 1);
   assert.match(result.stdout, /bad_request/);
 });
 
 test('нецелый лимит отвергается', async () => {
-  const result = await tt([
-    'logs',
-    'query',
-    '--query',
-    '*',
-    '--start',
-    '-1h',
-    '--end',
-    'now',
-    '--limit',
-    'много',
-  ]);
+  const result = await tt(['logs', 'query', '--query', '*', '--start', '-1h', '--end', 'now', '--limit', 'много']);
   const parsed = JSON.parse(result.stdout) as { errorClass: string; error: string };
   assert.equal(parsed.errorClass, 'bad_request');
   assert.match(parsed.error, /--limit/);
 });
 
 test('нецелый лимит не теряет уже разобранные query, start и end в эхе', async () => {
-  const result = await tt([
-    'logs',
-    'query',
-    '--query',
-    '*',
-    '--start',
-    '-1h',
-    '--end',
-    'now',
-    '--limit',
-    'abc',
-  ]);
+  const result = await tt(['logs', 'query', '--query', '*', '--start', '-1h', '--end', 'now', '--limit', 'abc']);
   const parsed = JSON.parse(result.stdout) as {
     errorClass: string;
     echo: { query: string | null; start: string | null; end: string | null };
@@ -151,18 +137,7 @@ test('нецелый лимит не теряет уже разобранные 
 test('отсутствующий файл учётных данных доходит до пользователя своим классом', async () => {
   const { dir, path } = emptyConfig();
   try {
-    const result = await tt([
-      'logs',
-      'query',
-      '--query',
-      '*',
-      '--start',
-      '-1h',
-      '--end',
-      'now',
-      '--config',
-      path,
-    ]);
+    const result = await tt(['logs', 'query', '--query', '*', '--start', '-1h', '--end', 'now', '--config', path]);
     const parsed = JSON.parse(result.stdout) as { errorClass: string };
     assert.equal(parsed.errorClass, 'credentials_missing');
   } finally {
@@ -200,11 +175,9 @@ test('отказ при чтении учётных данных всё равн
 });
 
 test('токен раскрывается целиком и помечен непроверенной подписью', async () => {
-  const payload = Buffer.from(JSON.stringify({ sub: 'fictional-user', role: 'agent' })).toString(
-    'base64url',
-  );
+  const payload = Buffer.from(JSON.stringify({ sub: 'fictional-user', role: 'agent' })).toString('base64url');
   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const result = await tt(['token', '--value', `${header}.${payload}.подпись`]);
+  const result = await tt(['token', '--value', `${header}.${payload}.c2lnbmF0dXJl`]);
   const parsed = JSON.parse(result.stdout) as {
     ok: boolean;
     data: { payload: Record<string, unknown>; signatureVerified: boolean };
@@ -230,18 +203,7 @@ test('повтор --value у token отвергается', async () => {
 test('составное относительное время передаётся как дано', async () => {
   const { dir, path } = emptyConfig();
   try {
-    const result = await tt([
-      'logs',
-      'query',
-      '--query',
-      '*',
-      '--start',
-      '-1d2h',
-      '--end',
-      'now',
-      '--config',
-      path,
-    ]);
+    const result = await tt(['logs', 'query', '--query', '*', '--start', '-1d2h', '--end', 'now', '--config', path]);
     assert.match(result.stdout, /credentials_missing/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -251,18 +213,7 @@ test('составное относительное время передаёт�
 test('значение, похожее на чужой флаг, склеивается с параметром', async () => {
   const { dir, path } = emptyConfig();
   try {
-    const result = await tt([
-      'logs',
-      'query',
-      '--query',
-      '*',
-      '--start',
-      '-xyz',
-      '--end',
-      'now',
-      '--config',
-      path,
-    ]);
+    const result = await tt(['logs', 'query', '--query', '*', '--start', '-xyz', '--end', 'now', '--config', path]);
     assert.match(result.stdout, /credentials_missing/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -272,16 +223,7 @@ test('значение, похожее на чужой флаг, склеива�
 test('--time с отрицательным значением не проглатывается как отдельный флаг', async () => {
   const { dir, path } = emptyConfig();
   try {
-    const result = await tt([
-      'metrics',
-      'instant',
-      '--query',
-      'up',
-      '--time',
-      '-1h',
-      '--config',
-      path,
-    ]);
+    const result = await tt(['metrics', 'instant', '--query', 'up', '--time', '-1h', '--config', path]);
     assert.match(result.stdout, /credentials_missing/);
   } finally {
     rmSync(dir, { recursive: true, force: true });

@@ -26,8 +26,7 @@ export interface MetricsEchoFields {
 }
 
 export const METRICS_LIMIT_NOTE = 'у команд метрик лимита нет — инструмент своего не подставляет';
-export const METRICS_ORDER =
-  'порядок рядов и значений — как отдал сервер; инструмент их не переставляет';
+export const METRICS_ORDER = 'порядок рядов и значений — как отдал сервер; инструмент их не переставляет';
 
 export function metricsDatasourceNote(datasource: Datasource): string | null {
   if (datasource.candidates.length === 0) return null;
@@ -82,9 +81,7 @@ function seriesCounts(data: unknown): { seriesCount: number; pointCount: number 
     const pointCount = items.reduce((sum: number, item) => {
       const values = item.values;
       const histograms = item.histograms;
-      return (
-        sum + (Array.isArray(values) ? values.length : 0) + (Array.isArray(histograms) ? histograms.length : 0)
-      );
+      return sum + (Array.isArray(values) ? values.length : 0) + (Array.isArray(histograms) ? histograms.length : 0);
     }, 0);
     return { seriesCount: items.length, pointCount };
   }

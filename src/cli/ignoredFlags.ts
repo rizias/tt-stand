@@ -1,14 +1,14 @@
 import { parseArgs } from 'node:util';
 import { joinNegativeValues, OPTIONS } from './args.ts';
 
-export const IGNORED_FLAGS_NOTE =
-  'эти флаги команда не применяет: они не повлияли на результат';
+export const IGNORED_FLAGS_NOTE = 'эти флаги команда не применяет: они не повлияли на результат';
 
-const COMMON_FLAGS = new Set(['config', 'profile', 'human', 'help']);
+const COMMON_FLAGS = new Set(['config', 'profile', 'human', 'json', 'help']);
 
 const TWO_WORD_GROUPS = new Set(['logs', 'metrics', 'k8s', 'config']);
 
 const COMMAND_FLAGS: Record<string, readonly string[]> = {
+  batch: ['file', 'out', 'start', 'end', 'view', 'baseline'],
   'logs query': ['query', 'query-file', 'start', 'end', 'limit'],
   'logs search': ['value', 'start', 'end', 'limit'],
   'logs http': ['query', 'query-file', 'value', 'start', 'end', 'limit'],
@@ -22,6 +22,8 @@ const COMMAND_FLAGS: Record<string, readonly string[]> = {
   'k8s events': ['namespace'],
   'k8s pods': ['namespace'],
   'k8s history': ['namespace'],
+  mongo: ['query', 'query-file', 'server', 'database'],
+  config: [],
   'config init': ['force'],
   'config profiles': [],
   token: ['value'],

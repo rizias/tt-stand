@@ -73,9 +73,7 @@ async function groupVersionResources(
 ): Promise<void> {
   let list: ApiResourceList;
   try {
-    list = resourceList(
-      await session.getJson(`/apis/${groupVersion.split('/').map(encodeURIComponent).join('/')}`),
-    );
+    list = resourceList(await session.getJson(`/apis/${groupVersion.split('/').map(encodeURIComponent).join('/')}`));
   } catch (cause) {
     into.unreadable.push(`${groupVersion}: ${(cause as Error).message}`);
     return;
@@ -148,10 +146,7 @@ export interface ResolvedResource {
   unreadable: string[];
 }
 
-export async function resolveResource(
-  session: K8sSessionLike,
-  requested: string,
-): Promise<ResolvedResource> {
+export async function resolveResource(session: K8sSessionLike, requested: string): Promise<ResolvedResource> {
   const { resources, unreadable } = await discover(session);
   const candidates = resources.filter((resource) => resourceNames(resource).includes(requested));
 
@@ -171,8 +166,7 @@ export async function resolveResource(
 
   const exactQualified = candidates.filter((resource) =>
     resource.group
-      ? requested === `${resource.name}.${resource.group}` ||
-        requested === `${resource.singularName}.${resource.group}`
+      ? requested === `${resource.name}.${resource.group}` || requested === `${resource.singularName}.${resource.group}`
       : requested === resource.name || requested === resource.singularName,
   );
   const pool = collapseVersions(exactQualified.length > 0 ? exactQualified : candidates);
@@ -188,11 +182,7 @@ export async function resolveResource(
   return { resource: pool[0] as DiscoveredResource, candidates, unreadable };
 }
 
-export function resourcePath(
-  resource: DiscoveredResource,
-  namespace: string | null,
-  name: string | null,
-): string {
+export function resourcePath(resource: DiscoveredResource, namespace: string | null, name: string | null): string {
   const prefix = resource.group
     ? `/apis/${encodeURIComponent(resource.group)}/${encodeURIComponent(resource.version)}`
     : `/api/${encodeURIComponent(resource.version)}`;

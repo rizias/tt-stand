@@ -19,16 +19,18 @@
     "docs",
     "skills",
     "README.md",
+    "AGENTS.md",
     "LICENSE"
   ],
   "scripts": {
     "build": "node scripts/clean.mjs && tsc",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0 --prune-suppressions",
     "knip": "knip",
-    "sizes": "node scripts/size-check.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts",
-    "check": "npm run typecheck && npm run lint && npm run knip && npm run sizes && npm test && npm run build",
+    "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run knip && npm test && npm run build",
     "version": "node scripts/changelog-release.mjs && node scripts/skill-version.mjs",
     "prepare": "lefthook install",
     "prepack": "npm run build",
@@ -36,16 +38,25 @@
   },
   "dependencies": {
     "@kubernetes/client-node": "^2.0.0",
+    "@mongodb-js/socksv5": "^0.0.11",
+    "mongodb": "^7.8.0",
+    "socks": "^2.8.10",
+    "ssh2": "^1.17.0",
     "update-notifier": "^7.3.1"
   },
   "devDependencies": {
+    "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^22.20.1",
+    "@types/ssh2": "^1.15.6",
     "@types/update-notifier": "^6.0.8",
     "eslint": "^10.9.1",
     "knip": "^6.34.0",
     "lefthook": "^2.1.12",
-    "typescript": "^5.7.2",
-    "typescript-eslint": "^8.69.0"
+    "mongodb-memory-server": "^11.3.0",
+    "prettier": "^3.9.10",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.69.0",
+    "vitest": "^5.1.0"
   },
   "publishConfig": {
     "access": "public"

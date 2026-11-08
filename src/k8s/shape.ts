@@ -113,9 +113,7 @@ export function buildHistory(raw: unknown, workloadUid: string): DeployRevision[
           };
         }
       )?.metadata?.ownerReferences ?? [];
-    return owners.some(
-      (owner) => owner?.kind === 'Deployment' && owner?.uid === workloadUid && owner?.controller,
-    );
+    return owners.some((owner) => owner?.kind === 'Deployment' && owner?.uid === workloadUid && owner?.controller);
   });
   return own
     .map((item) => {
@@ -123,8 +121,7 @@ export function buildHistory(raw: unknown, workloadUid: string): DeployRevision[
       const annotations = (meta.annotations ?? {}) as Record<string, string>;
       const spec = (item as { spec?: Record<string, unknown> }).spec ?? {};
       const containers =
-        (spec.template as { spec?: { containers?: Array<{ image?: string }> } })?.spec
-          ?.containers ?? [];
+        (spec.template as { spec?: { containers?: Array<{ image?: string }> } })?.spec?.containers ?? [];
       return {
         revision: annotations['deployment.kubernetes.io/revision'] ?? null,
         createdAt: (meta.creationTimestamp as string) ?? null,

@@ -1,14 +1,12 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { assertInScope, matchesScope, parseScope, scopeExtraFilter } from '../src/scope.ts';
 
 test('пустой перечень образцов отвергается как config_invalid', () => {
   assert.throws(
     () => parseScope([], 'namespaceScope', 'профиле broken (путь)'),
     (error: Error & { errorClass?: string }) =>
-      error.errorClass === 'config_invalid' &&
-      /namespaceScope/.test(error.message) &&
-      /broken/.test(error.message),
+      error.errorClass === 'config_invalid' && /namespaceScope/.test(error.message) && /broken/.test(error.message),
   );
 });
 
@@ -44,7 +42,7 @@ test('без области видимости совпадает всё', () =>
 
 test('выход за область — namespace_out_of_scope с профилем, именем и образцами', () => {
   assert.throws(
-    () => assertInScope('prod-1', ['stand-*'], 'default'),
+    () => assertInScope('prod-1', ['stand-*'], 'default', 'задан параметром команды'),
     (error: Error & { errorClass?: string }) =>
       error.errorClass === 'namespace_out_of_scope' &&
       /prod-1/.test(error.message) &&
@@ -59,10 +57,7 @@ test('без области видимости параметр ограниче
 
 test('параметр ограничения перечисляет образцы через OR регулярным фильтром', () => {
   const filter = scopeExtraFilter(['stand-*', 'qa-1'], 'kubernetes.pod_namespace');
-  assert.equal(
-    filter,
-    '(kubernetes.pod_namespace:~"^stand-.*$" OR kubernetes.pod_namespace:~"^qa-1$")',
-  );
+  assert.equal(filter, '(kubernetes.pod_namespace:~"^stand-.*$" OR kubernetes.pod_namespace:~"^qa-1$")');
 });
 
 test('allowMissing добавляет отдельную альтернативу для отсутствующего поля', () => {

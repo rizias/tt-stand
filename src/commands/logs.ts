@@ -3,14 +3,15 @@ import {
   type LabelledRecord,
   labelRecords,
   NAMESPACE_FIELD,
+  resolvedNamespace,
   summarizeLabelled,
-  UNKNOWN_ENVIRONMENT,
 } from '../environment.ts';
 import { ToolError } from '../errors.ts';
 import { type Datasource, fieldValueNames, GrafanaClient } from '../grafana.ts';
 import { parseHttpRecord } from '../http.ts';
 import { ECHO_CONSTANTS, ResponseBuilder, type ToolResponse } from '../response.ts';
 import { matchesScope, type NamespaceScope, scopeExtraFilter } from '../scope.ts';
+import { datasourceEcho, fieldValuesWithEcho } from './logsEcho.ts';
 
 export interface LogsContext {
   client: GrafanaClient;
@@ -27,11 +28,6 @@ export function buildSearchQuery(values: string[]): string {
   return terms.length === 1 ? (terms[0] as string) : `(${terms.join(' OR ')})`;
 }
 
-function datasourceNote(datasource: Datasource): string | undefined {
-  if (datasource.candidates.length <= 1) return undefined;
-  return `источников этого типа несколько (${datasource.candidates.map((item) => item.name).join(', ')}), взят первый; задать явно — grafana.datasourceUid`;
-}
-
 function applyScope(params: URLSearchParams, scope: NamespaceScope, allowMissing: boolean): void {
   const filter = scopeExtraFilter(scope, NAMESPACE_FIELD, { allowMissing });
   if (filter !== null) params.set('extra_filters', filter);
@@ -40,12 +36,12 @@ function applyScope(params: URLSearchParams, scope: NamespaceScope, allowMissing
 function applyNamespaceScope(
   labelled: LabelledRecord[],
   scope: NamespaceScope,
+  namespaces: readonly string[],
 ): { kept: LabelledRecord[]; droppedCount: number } {
   if (scope === null) return { kept: labelled, droppedCount: 0 };
   const kept = labelled.filter((item) => {
-    if (item.environmentSource !== 'upstream') return true;
-    if (item.environment === UNKNOWN_ENVIRONMENT) return true;
-    return matchesScope(item.environment, scope);
+    const namespace = resolvedNamespace(item, namespaces);
+    return namespace === null || matchesScope(namespace, scope);
   });
   return { kept, droppedCount: labelled.length - kept.length };
 }
@@ -60,31 +56,45 @@ interface RunOptions {
   searchValues?: string[];
 }
 
+type QueryResult = Awaited<ReturnType<GrafanaClient['queryLogs']>>;
+
 async function queryWithEcho(
   context: LogsContext,
   options: RunOptions,
   params: URLSearchParams,
-): Promise<Awaited<ReturnType<GrafanaClient['queryLogs']>>> {
+): Promise<{ result: QueryResult; timeoutError: ToolError | null }> {
   try {
-    return await context.client.queryLogs(context.datasource, params, options.limit);
+    return { result: await context.client.queryLogs(context.datasource, params, options.limit), timeoutError: null };
   } catch (cause) {
     if (!(cause instanceof ToolError)) throw cause;
-    throw cause.withEcho({
+    const error = cause.withEcho({
       query: options.query,
       queryFile: options.queryFile ?? null,
       start: options.start,
       end: options.end,
       limit: options.limit,
       request: GrafanaClient.describeRequest('select/logsql/query', params),
-      datasource: context.datasource.name,
-      datasourceNote: datasourceNote(context.datasource) ?? null,
+      ...datasourceEcho(context.datasource),
       profile: context.profile,
       namespaceScope: context.namespaceScope,
     });
+    const partial = error.partialPayload as { records?: unknown[]; unparsableLines?: number } | undefined;
+    if (error.errorClass === 'timeout_client' && Array.isArray(partial?.records)) {
+      return {
+        result: {
+          records: partial.records as QueryResult['records'],
+          unparsableLines: partial.unparsableLines ?? 0,
+          hitLimit: false,
+          aborted: true,
+          abortReason: error.message,
+          bodyMissing: false,
+        },
+        timeoutError: error,
+      };
+    }
+    throw error;
   }
 }
-
-type QueryResult = Awaited<ReturnType<GrafanaClient['queryLogs']>>;
 
 function addResultReasons(builder: ResponseBuilder, result: QueryResult): void {
   if (result.hitLimit) builder.addReason('truncatedByLimit');
@@ -112,10 +122,7 @@ async function resolveIngressNamespaces(
   }
 }
 
-export async function runLogsQuery(
-  context: LogsContext,
-  options: RunOptions,
-): Promise<ToolResponse> {
+export async function runLogsQuery(context: LogsContext, options: RunOptions): Promise<ToolResponse> {
   const builder = new ResponseBuilder();
   const params = new URLSearchParams({
     query: options.query,
@@ -125,22 +132,16 @@ export async function runLogsQuery(
   if (options.limit !== null) params.set('limit', String(options.limit));
   applyScope(params, context.namespaceScope, true);
 
-  const result = await queryWithEcho(context, options, params);
+  const { result, timeoutError } = await queryWithEcho(context, options, params);
   addResultReasons(builder, result);
 
-  const { namespaces, unavailableSources } = await resolveIngressNamespaces(
-    context,
-    result,
-    builder,
-  );
+  const { namespaces, unavailableSources } = await resolveIngressNamespaces(context, result, builder);
 
   const { labelled } = labelRecords(result.records, namespaces);
-  const { kept, droppedCount } = applyNamespaceScope(labelled, context.namespaceScope);
+  const { kept, droppedCount } = applyNamespaceScope(labelled, context.namespaceScope, namespaces);
   if (droppedCount > 0) builder.addReason('outOfScopeDropped');
-  const summary = summarizeLabelled(kept);
+  const summary = summarizeLabelled(kept, namespaces);
   if (summary.unknownCount > 0) builder.addReason('unknownEnvironment');
-
-  const note = datasourceNote(context.datasource);
 
   return {
     ok: !result.aborted,
@@ -159,8 +160,7 @@ export async function runLogsQuery(
       end: options.end,
       limit: options.limit,
       limitNote: options.limit === null ? ECHO_CONSTANTS.noLimit : 'лимит задан пользователем',
-      datasource: context.datasource.name,
-      datasourceNote: note ?? null,
+      ...datasourceEcho(context.datasource),
       recordsReturned: kept.length,
       hitLimit: result.hitLimit,
       unparsableLines: result.unparsableLines,
@@ -176,15 +176,12 @@ export async function runLogsQuery(
     },
     incomplete: builder.incomplete,
     incompleteReasons: builder.reasonTexts,
-    errorClass: result.aborted ? 'stream_aborted' : null,
+    errorClass: timeoutError ? timeoutError.errorClass : result.aborted ? 'stream_aborted' : null,
     error: result.aborted ? `Получение данных прервано: ${result.abortReason}` : null,
   };
 }
 
-export async function runHttpLogs(
-  context: LogsContext,
-  options: Omit<RunOptions, 'command'>,
-): Promise<ToolResponse> {
+export async function runHttpLogs(context: LogsContext, options: Omit<RunOptions, 'command'>): Promise<ToolResponse> {
   const response = await runLogsQuery(context, { ...options, command: 'logs http' });
   const rows = response.data as Array<Record<string, unknown>>;
   let unparsed = 0;
@@ -223,11 +220,16 @@ export async function runFieldValues(
   if (options.limit !== null) params.set('limit', String(options.limit));
   applyScope(params, context.namespaceScope, false);
 
-  const result = await context.client.fieldValues(context.datasource, params);
+  const result = await fieldValuesWithEcho(context, params, {
+    field: options.field,
+    query: options.query ?? '*',
+    queryFile: options.queryFile ?? null,
+    start: options.start,
+    end: options.end,
+    limit: options.limit,
+  });
   const hitLimit = options.limit !== null && result.values.length >= options.limit;
   if (hitLimit) builder.addReason('fieldValuesTruncated');
-
-  const note = datasourceNote(context.datasource);
 
   return {
     ok: true,
@@ -243,8 +245,7 @@ export async function runFieldValues(
       end: options.end,
       limit: options.limit,
       limitNote: options.limit === null ? ECHO_CONSTANTS.noLimit : 'лимит задан пользователем',
-      datasource: context.datasource.name,
-      datasourceNote: note ?? null,
+      ...datasourceEcho(context.datasource),
       recordsReturned: result.values.length,
       hitLimit,
       unparsableLines: 0,

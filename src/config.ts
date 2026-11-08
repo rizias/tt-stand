@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { expectString, expectTable } from './configValues.ts';
+import { expectString, readConfigDocument } from './configValues.ts';
 import { ToolError } from './errors.ts';
 import { normalizePath } from './paths.ts';
 
@@ -17,9 +17,7 @@ export function fallbackJournalDirectory(): string {
   return join(configHome(), 'journal');
 }
 
-export const DEFAULT_ROOT_CONFIG: RootConfig = {
-  defaultProfile: null,
-};
+export const DEFAULT_ROOT_CONFIG: RootConfig = { defaultProfile: null };
 
 export function defaultConfigPath(): string {
   return join(configHome(), 'config.json');
@@ -37,52 +35,17 @@ export interface LoadedRootConfig {
   raw: Record<string, unknown> | null;
 }
 
-function explicitConfigSource(fromArgument?: string): string | null {
-  if (fromArgument !== undefined) return 'аргументом --config';
-  const fromEnvironment = process.env.TT_STAND_CONFIG;
-  return fromEnvironment ? 'переменной окружения TT_STAND_CONFIG' : null;
-}
-
 export function loadRootConfig(fromArgument?: string): LoadedRootConfig {
   const path = resolveConfigPath(fromArgument);
   if (!existsSync(path)) {
-    const source = explicitConfigSource(fromArgument);
+    const source = fromArgument !== undefined ? '--config' : process.env.TT_STAND_CONFIG ? 'TT_STAND_CONFIG' : null;
     if (source !== null) {
-      throw new ToolError(
-        'config_invalid',
-        `Файл конфигурации, заданный ${source}, не найден: ${path}. Значения по умолчанию вместо явно названного файла не подставляются.`,
-      );
+      throw new ToolError('config_invalid', `Файл конфигурации, заданный ${source}, отсутствует по пути ${path}.`);
     }
     return { config: { ...DEFAULT_ROOT_CONFIG }, path, exists: false, raw: null };
   }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  } catch (cause) {
-    throw new ToolError(
-      'config_invalid',
-      `Файл конфигурации ${path} не разбирается как JSON: ${(cause as Error).message}`,
-    );
-  }
-
-  const raw = expectTable(parsed, 'корень файла', path);
-  if (raw === null) {
-    throw new ToolError('config_invalid', `Файл конфигурации ${path} пуст`);
-  }
-
-  const config: RootConfig = { ...DEFAULT_ROOT_CONFIG };
-  if (raw.defaultProfile !== undefined) {
-    config.defaultProfile = expectString(raw.defaultProfile, 'defaultProfile', path);
-  }
-
-  return { config, path, exists: true, raw };
+  const raw = readConfigDocument(path);
+  const defaultValue = raw.defaultProfile;
+  const defaultProfile = defaultValue === undefined ? null : expectString(defaultValue, 'defaultProfile', path);
+  return { config: { defaultProfile }, path, exists: true, raw };
 }
-
-export const CONFIG_TEMPLATE = `${JSON.stringify(
-  {
-    defaultProfile: 'default',
-  },
-  null,
-  2,
-)}\n`;

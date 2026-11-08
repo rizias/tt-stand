@@ -18,8 +18,7 @@ export interface ParsedHttpTraffic {
   tokens: HttpToken[];
 }
 
-const TOKEN_PATTERN =
-  /(?<![A-Za-z0-9_-])([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)(?![A-Za-z0-9_-])/g;
+const TOKEN_PATTERN = /(?<![A-Za-z0-9_-])([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)(?![A-Za-z0-9_-])/g;
 
 function firstMatch(text: string, patterns: RegExp[]): string | null {
   for (const pattern of patterns) {
@@ -42,20 +41,43 @@ function decodeEscapes(text: string): string {
   });
 }
 
-function tokenCandidates(text: string): string[] {
-  const sources = [text];
-  const decoded = decodeEscapes(text);
-  if (decoded !== text) sources.push(decoded);
+function addressSegments(text: string): string[] {
+  const address = text.split('#', 1)[0] ?? '';
+  const queryStart = address.indexOf('?');
+  const path = queryStart === -1 ? address : address.slice(0, queryStart);
+  if (queryStart === -1) return path.split('/');
+  const query = address.slice(queryStart + 1);
+  const values = query.split('&').map((parameter) => {
+    const separator = parameter.indexOf('=');
+    return separator === -1 ? parameter : parameter.slice(separator + 1);
+  });
+  return [...path.split('/'), ...values];
+}
 
+function tokenSources(text: string, location: HttpToken['source']): string[] {
+  const segments = location === 'address' ? addressSegments(text) : [text];
+  return segments.flatMap((segment) => {
+    const decoded = decodeEscapes(segment);
+    return decoded === segment ? [segment] : [segment, decoded];
+  });
+}
+
+function tokenBoundary(source: string, match: RegExpMatchArray, location: HttpToken['source']): boolean {
+  const following = source[(match.index ?? 0) + match[0].length];
+  if (location === 'outside_address') return following === undefined || /[\s"'<>]/u.test(following);
+  const preceding = source[(match.index ?? 0) - 1];
+  return following === undefined && (match.index === 0 || preceding === '+' || /\s/u.test(preceding ?? ''));
+}
+
+function tokenCandidates(text: string, location: HttpToken['source']): string[] {
   const values: string[] = [];
   const seen = new Set<string>();
-  for (const source of sources) {
+  for (const source of tokenSources(text, location)) {
     for (const match of source.matchAll(TOKEN_PATTERN)) {
       const value = match[1];
-      if (value !== undefined && !seen.has(value)) {
-        seen.add(value);
-        values.push(value);
-      }
+      if (value === undefined || seen.has(value) || !tokenBoundary(source, match, location)) continue;
+      seen.add(value);
+      values.push(value);
     }
   }
   return values;
@@ -68,7 +90,7 @@ function decodeCandidates(address: string, headers: string): HttpToken[] {
     ['address', address],
     ['outside_address', headers],
   ] as const) {
-    for (const value of tokenCandidates(text)) {
+    for (const value of tokenCandidates(text, source)) {
       if (seen.has(value)) continue;
       try {
         result.push({ ...decodeToken(value), source });
@@ -80,7 +102,7 @@ function decodeCandidates(address: string, headers: string): HttpToken[] {
 }
 
 function statusAndSizeOf(tail: string): { responseStatus: number | null; responseSize: number | null } {
-  const groups = /^\s+(?<status>\d{3})\s+(?<size>\d+|-)(?:\s|$)/u.exec(tail)?.groups;
+  const groups = /^\s+(?<status>\d{3})(?:\s+(?<size>\d+|-))?(?:\s|$)/u.exec(tail)?.groups;
   const size = groups?.size;
   return {
     responseStatus: groups?.status ? Number(groups.status) : null,
@@ -95,7 +117,7 @@ function userAgentOf(message: string, tail: string): string | null {
       /(?:http_user_agent|user_agent|user-agent)\s*[=:]\s*"(?<value>[^"]*)"/iu,
       /User-Agent:\s*(?<value>.*?)(?=\s+(?:[A-Za-z-]+:|\w+[=:])|$)/iu,
     ]) ??
-    combined?.groups?.value ??
+    (combined?.groups?.value === '-' ? null : combined?.groups?.value) ??
     null
   );
 }
@@ -104,23 +126,19 @@ function durationOf(message: string, tail: string): string | null {
   return (
     firstMatch(message, [
       /(?:request_time|duration|request_duration)\s*[=:]\s*"?(?<value>\d+(?:\.\d+)?(?:ms|s)?)"?/iu,
-    ]) ??
-    firstMatch(tail, [/\s\d{3}\s+(?:\d+|-)\s+"[^"]*"\s+"[^"]*"\s+\d+\s+(?<value>\d+\.\d+)\s/u])
+    ]) ?? firstMatch(tail, [/\s\d{3}\s+(?:\d+|-)\s+"[^"]*"\s+"[^"]*"\s+\d+\s+(?<value>\d+\.\d+)\s/u])
   );
 }
 
 function upstreamOf(message: string): string | null {
   return (
     firstMatch(message, [/\[(?<value>[a-z0-9]([a-z0-9-]*[a-z0-9])?-\d+)\]/u]) ??
-    firstMatch(message, [
-      /(?:upstream_addr|upstream_address|upstream)\s*[=:]\s*"?(?<value>[^\s",]+)"?/iu,
-    ])
+    firstMatch(message, [/(?:upstream_addr|upstream_address|upstream)\s*[=:]\s*"?(?<value>[^\s",]+)"?/iu])
   );
 }
 
 export function parseHttpMessage(message: string): ParsedHttpTraffic | null {
-  const request =
-    /(?<method>[A-Z]+)\s+(?<path>\S+)\s+(?<protocol>HTTP\/(?:\d+(?:\.\d+)?|2|3))/u.exec(message);
+  const request = /(?<method>[A-Z]+)\s+(?<path>\S+)\s+(?<protocol>HTTP\/(?:\d+(?:\.\d+)?|2|3))/u.exec(message);
   if (!request?.groups) return null;
 
   const path = request.groups.path as string;

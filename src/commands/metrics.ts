@@ -6,19 +6,11 @@ import {
   hideOtherLabelValues,
 } from '../metricsScope.ts';
 import type { ToolResponse } from '../response.ts';
-import {
-  buildMetricsResponse,
-  callWithEcho,
-  type MetricsContext,
-  type MetricsEchoFields,
-} from './metricsEcho.ts';
+import { buildMetricsResponse, callWithEcho, type MetricsContext, type MetricsEchoFields } from './metricsEcho.ts';
 
 export type { MetricsContext } from './metricsEcho.ts';
 
-function timeParams(
-  start: string | null,
-  end: string | null,
-): { params: URLSearchParams; serverChosen: string[] } {
+function timeParams(start: string | null, end: string | null): { params: URLSearchParams; serverChosen: string[] } {
   const params = new URLSearchParams();
   const serverChosen: string[] = [];
   if (start !== null) params.set('start', start);
@@ -40,10 +32,7 @@ interface QueryOptions {
   step: string | null;
 }
 
-export async function runMetricsQuery(
-  context: MetricsContext,
-  options: QueryOptions,
-): Promise<ToolResponse> {
+export async function runMetricsQuery(context: MetricsContext, options: QueryOptions): Promise<ToolResponse> {
   const params = new URLSearchParams({
     query: options.query,
     start: options.start,
@@ -66,14 +55,7 @@ export async function runMetricsQuery(
   };
 
   const call = await callWithEcho(context, echo, () =>
-    callMetrics(
-      context.transport,
-      context.baseUrl,
-      context.datasource,
-      'POST',
-      'api/v1/query_range',
-      params,
-    ),
+    callMetrics(context.transport, context.baseUrl, context.datasource, 'POST', 'api/v1/query_range', params),
   );
 
   const { data, outOfScope, withoutNamespace, shapeHidden } = filterMatrixOrVector(
@@ -102,10 +84,7 @@ interface InstantOptions {
   time: string | null;
 }
 
-export async function runMetricsInstant(
-  context: MetricsContext,
-  options: InstantOptions,
-): Promise<ToolResponse> {
+export async function runMetricsInstant(context: MetricsContext, options: InstantOptions): Promise<ToolResponse> {
   const params = new URLSearchParams({ query: options.query });
   const serverChosen: string[] = [];
   if (options.time !== null) params.set('time', options.time);
@@ -124,14 +103,7 @@ export async function runMetricsInstant(
   };
 
   const call = await callWithEcho(context, echo, () =>
-    callMetrics(
-      context.transport,
-      context.baseUrl,
-      context.datasource,
-      'POST',
-      'api/v1/query',
-      params,
-    ),
+    callMetrics(context.transport, context.baseUrl, context.datasource, 'POST', 'api/v1/query', params),
   );
 
   const { data, outOfScope, withoutNamespace, shapeHidden } = filterMatrixOrVector(
@@ -185,10 +157,7 @@ function filterLabelsData(
   };
 }
 
-export async function runMetricsLabels(
-  context: MetricsContext,
-  options: LabelsOptions,
-): Promise<ToolResponse> {
+export async function runMetricsLabels(context: MetricsContext, options: LabelsOptions): Promise<ToolResponse> {
   const { params, serverChosen } = timeParams(options.start, options.end);
   withMatch(params, options.match);
   if (options.match === null || options.match.length === 0) serverChosen.push('match[]');
@@ -205,10 +174,7 @@ export async function runMetricsLabels(
     serverChosen,
   };
 
-  const path =
-    options.label === null
-      ? 'api/v1/labels'
-      : `api/v1/label/${encodeURIComponent(options.label)}/values`;
+  const path = options.label === null ? 'api/v1/labels' : `api/v1/label/${encodeURIComponent(options.label)}/values`;
   const method = options.label === null ? 'POST' : 'GET';
 
   const call = await callWithEcho(context, echo, () =>
@@ -242,10 +208,7 @@ interface SeriesOptions {
   end: string | null;
 }
 
-export async function runMetricsSeries(
-  context: MetricsContext,
-  options: SeriesOptions,
-): Promise<ToolResponse> {
+export async function runMetricsSeries(context: MetricsContext, options: SeriesOptions): Promise<ToolResponse> {
   const { params, serverChosen } = timeParams(options.start, options.end);
   withMatch(params, options.match);
 
@@ -262,14 +225,7 @@ export async function runMetricsSeries(
   };
 
   const call = await callWithEcho(context, echo, () =>
-    callMetrics(
-      context.transport,
-      context.baseUrl,
-      context.datasource,
-      'POST',
-      'api/v1/series',
-      params,
-    ),
+    callMetrics(context.transport, context.baseUrl, context.datasource, 'POST', 'api/v1/series', params),
   );
 
   const { data, outOfScope, withoutNamespace, shapeHidden } = filterSeriesList(

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "goal": "Потребление CPU по namespace и подам за период",
+  "requests": [
+    {
+      "id": "cpu",
+      "why": "Ряд потребления каждого пода",
+      "argv": ["metrics", "query", "--query-file", "pod-cpu.promql", "--step", "1m"]
+    }
+  ]
+}

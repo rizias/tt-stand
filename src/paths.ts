@@ -11,7 +11,7 @@ export function expandHome(input: string): string {
 
 const UNC_PREFIX = /^[\\/]{2,}([^\\/].*)$/;
 
-export function normalizePathFor(platform: PlatformPath, input: string): string {
+export function normalizePathFor(platform: PlatformPath, input: string, base = process.cwd()): string {
   const expanded = expandHome(input);
   const { sep } = platform;
   const uncMatch = UNC_PREFIX.exec(expanded);
@@ -20,11 +20,13 @@ export function normalizePathFor(platform: PlatformPath, input: string): string 
     return platform.resolve(`${sep}${sep}${rest}`);
   }
   const collapsed = expanded.replace(/[\\/]+/g, sep);
-  return platform.isAbsolute(collapsed)
-    ? platform.resolve(collapsed)
-    : platform.resolve(process.cwd(), collapsed);
+  return platform.isAbsolute(collapsed) ? platform.resolve(collapsed) : platform.resolve(base, collapsed);
 }
 
 export function normalizePath(input: string): string {
   return normalizePathFor(path, input);
+}
+
+export function normalizePathFrom(base: string, input: string): string {
+  return normalizePathFor(path, input, base);
 }

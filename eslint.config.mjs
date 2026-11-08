@@ -1,3 +1,4 @@
+import stylistic from '@stylistic/eslint-plugin';
 import tseslint from 'typescript-eslint';
 
 const referenceDirective = /^\/\s*<reference(?:\s|>|$)/;
@@ -20,9 +21,11 @@ export const noComments = {
         for (const comment of context.sourceCode.getAllComments()) {
           if (comment.type === 'Shebang') continue;
           const value = comment.value.trim();
-          const allowed = value.startsWith('owner:') || (comment.type === 'Line'
-            ? referenceDirective.test(comment.value) || lineDirective.some((directive) => directive.test(value))
-            : comment.type === 'Block' && blockDirective.test(value));
+          const allowed =
+            value.startsWith('owner:') ||
+            (comment.type === 'Line'
+              ? referenceDirective.test(comment.value) || lineDirective.some((directive) => directive.test(value))
+              : comment.type === 'Block' && blockDirective.test(value));
           if (!allowed) {
             context.report({ loc: comment.loc, messageId: 'forbidden' });
           }
@@ -41,6 +44,7 @@ export function buildConfig(ownerPaths) {
     {
       linterOptions: { noInlineConfig: true },
       plugins: {
+        '@stylistic': stylistic,
         local: {
           rules: {
             'no-comments': noComments,
@@ -50,6 +54,7 @@ export function buildConfig(ownerPaths) {
       rules: {
         'local/no-comments': 'error',
         complexity: ['error', 15],
+        '@stylistic/max-len': ['error', { code: 120, ignoreUrls: true, ignoreRegExpLiterals: true }],
         '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       },
     },
@@ -57,10 +62,14 @@ export function buildConfig(ownerPaths) {
       files: ['**/*.js', '**/*.mjs', '**/*.cjs', '**/*.jsx'],
       languageOptions: { parserOptions: { ecmaFeatures: { jsx: true } } },
     },
-    ...(ownerPaths.length > 0 ? [{
-      files: ownerPaths,
-      rules: { 'local/no-comments': 'off' },
-    }] : []),
+    ...(ownerPaths.length > 0
+      ? [
+          {
+            files: ownerPaths,
+            rules: { 'local/no-comments': 'off' },
+          },
+        ]
+      : []),
   );
 }
 

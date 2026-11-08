@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { parseImageReference, runImage } from '../src/commands/image.ts';
 
 test('тег разбирается на версию и полный SHA', () => {
@@ -51,11 +51,17 @@ test('тег из одного только SHA разбирается, верс
   assert.equal(parsed.version, null);
 });
 
+test('digest образа не принимается за тег или SHA коммита', () => {
+  const digest = 'a'.repeat(64);
+  const parsed = parseImageReference(`example-api@sha256:${digest}`);
+  assert.equal(parsed.path, 'example-api');
+  assert.equal(parsed.tag, '');
+  assert.equal(parsed.commit, null);
+});
+
 test('организация в имени образа не теряется', () => {
   const sha = 'b'.repeat(40);
-  const parsed = parseImageReference(
-    `registry.fictional-registry.invalid:5000/acme/example-api:1.2.3-${sha}`,
-  );
+  const parsed = parseImageReference(`registry.fictional-registry.invalid:5000/acme/example-api:1.2.3-${sha}`);
   assert.equal(parsed.registry, 'registry.fictional-registry.invalid:5000');
   assert.equal(parsed.path, 'acme/example-api');
   assert.equal(parsed.name, 'example-api');

@@ -3,19 +3,16 @@ import { fieldValueNames, GrafanaClient } from '../grafana.ts';
 import { ECHO_CONSTANTS, type ToolResponse } from '../response.ts';
 import { scopeExtraFilter } from '../scope.ts';
 import type { LogsContext } from './logs.ts';
+import { datasourceEcho, fieldValuesWithEcho } from './logsEcho.ts';
 
 export async function runEnv(context: LogsContext): Promise<ToolResponse> {
   const params = new URLSearchParams({ field: NAMESPACE_FIELD, query: '*' });
   const filter = scopeExtraFilter(context.namespaceScope, NAMESPACE_FIELD);
   if (filter !== null) params.set('extra_filters', filter);
 
-  const result = await context.client.fieldValues(context.datasource, params);
+  const result = await fieldValuesWithEcho(context, params, { query: '*' });
   const namespaces = fieldValueNames(result.values);
   const acquiredAt = new Date().toISOString();
-  const datasourceNote =
-    context.datasource.candidates.length > 1
-      ? `источников этого типа несколько (${context.datasource.candidates.map((item) => item.name).join(', ')}), взят первый; задать явно — grafana.datasourceUid`
-      : null;
 
   return {
     ok: true,
@@ -36,8 +33,7 @@ export async function runEnv(context: LogsContext): Promise<ToolResponse> {
       end: null,
       limit: null,
       limitNote: ECHO_CONSTANTS.noLimit,
-      datasource: context.datasource.name,
-      datasourceNote,
+      ...datasourceEcho(context.datasource),
       recordsReturned: namespaces.length,
       hitLimit: false,
       unparsableLines: 0,

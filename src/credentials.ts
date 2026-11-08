@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { ToolError } from './errors.ts';
+export { readServerCredentials, describeServerCredentials } from './profileCredentials.ts';
 
 export type Credentials =
   | { kind: 'basic'; login: string; password: string; baseUrl: string }
@@ -12,23 +13,13 @@ export function credentialsFileState(path: string): CredentialsFileState {
   return statSync(path).size === 0 ? 'empty' : 'filled';
 }
 
-function readKey(text: string, key: string): string | null {
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith(`${key}=`)) {
-      const value = trimmed.slice(key.length + 1).trim();
-      if (value.length > 0) return value;
-    }
-  }
-  return null;
-}
-
 function readFile(path: string, profileName: string): string {
   const echo = { profile: profileName };
   if (!existsSync(path)) {
     throw new ToolError(
       'credentials_missing',
-      `Файл учётных данных профиля ${profileName} не найден: ${path}. Нужен документ JSON с полем kind ("basic" — login и password, "token" — token) либо прежний построчный вид со строками u=, p=, e=.`,
+      `Файл учётных данных профиля ${profileName} не найден: ${path}. ` +
+        'Нужен документ JSON с полем kind ("basic" — login и password, "token" — token).',
       null,
       echo,
     );
@@ -38,12 +29,7 @@ function readFile(path: string, profileName: string): string {
   } catch (cause) {
     const error = cause as NodeJS.ErrnoException;
     if (error.code === 'ENOENT') {
-      throw new ToolError(
-        'credentials_missing',
-        `Файл учётных данных исчез при чтении: ${path}`,
-        null,
-        echo,
-      );
+      throw new ToolError('credentials_missing', `Файл учётных данных исчез при чтении: ${path}`, null, echo);
     }
     throw new ToolError(
       'credentials_incomplete',
@@ -54,53 +40,16 @@ function readFile(path: string, profileName: string): string {
   }
 }
 
-function resolveBaseUrl(
-  profileBaseUrl: string | null,
-  legacyBaseUrl: string | null,
-  profileName: string,
-  path: string,
-): string {
-  const baseUrl = profileBaseUrl ?? legacyBaseUrl;
+function resolveBaseUrl(baseUrl: string | null, profileName: string): string {
   if (baseUrl === null) {
     throw new ToolError(
       'profile_incomplete',
-      `В профиле ${profileName} не задан базовый адрес Grafana: ни поле grafana.baseUrl, ни строка e= файла ${path} его не называют.`,
+      `В профиле ${profileName} не задан базовый адрес Grafana в поле grafana.baseUrl.`,
       null,
       { profile: profileName },
     );
   }
   return baseUrl.replace(/\/+$/, '');
-}
-
-function fromLegacy(
-  text: string,
-  path: string,
-  profileBaseUrl: string | null,
-  profileName: string,
-): Credentials {
-  const login = readKey(text, 'u');
-  const password = readKey(text, 'p');
-  const legacyBaseUrl = readKey(text, 'e');
-
-  const missing = (
-    [
-      ['u', login],
-      ['p', password],
-    ] as const
-  )
-    .filter(([, value]) => value === null)
-    .map(([key]) => `${key}=`);
-  if (missing.length > 0) {
-    throw new ToolError(
-      'credentials_incomplete',
-      `В файле учётных данных ${path} отсутствует: ${missing.join(', ')}`,
-      null,
-      { profile: profileName },
-    );
-  }
-
-  const baseUrl = resolveBaseUrl(profileBaseUrl, legacyBaseUrl, profileName, path);
-  return { kind: 'basic', login: login as string, password: password as string, baseUrl };
 }
 
 const KNOWN_KINDS = ['basic', 'token'] as const;
@@ -122,7 +71,7 @@ function fromBasicJson(
       { profile: profileName },
     );
   }
-  const baseUrl = resolveBaseUrl(profileBaseUrl, null, profileName, path);
+  const baseUrl = resolveBaseUrl(profileBaseUrl, profileName);
   return {
     kind: 'basic',
     login: fields.login as string,
@@ -146,23 +95,15 @@ function fromTokenJson(
       { profile: profileName },
     );
   }
-  const baseUrl = resolveBaseUrl(profileBaseUrl, null, profileName, path);
+  const baseUrl = resolveBaseUrl(profileBaseUrl, profileName);
   return { kind: 'token', token, baseUrl };
 }
 
-function fromJson(
-  raw: unknown,
-  path: string,
-  profileBaseUrl: string | null,
-  profileName: string,
-): Credentials {
+function fromJson(raw: unknown, path: string, profileBaseUrl: string | null, profileName: string): Credentials {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw new ToolError(
-      'credentials_incomplete',
-      `Файл учётных данных ${path} не является объектом JSON.`,
-      null,
-      { profile: profileName },
-    );
+    throw new ToolError('credentials_incomplete', `Файл учётных данных ${path} не является объектом JSON.`, null, {
+      profile: profileName,
+    });
   }
   const fields = raw as Record<string, unknown>;
   const kind = fields.kind;
@@ -172,28 +113,26 @@ function fromJson(
 
   throw new ToolError(
     'credentials_incomplete',
-    `Файл учётных данных ${path} называет неизвестный способ доступа «${String(kind)}». Известные способы: ${KNOWN_KINDS.join(', ')}.`,
+    `Файл учётных данных ${path} называет неизвестный способ доступа. Известные способы ${KNOWN_KINDS.join(', ')}.`,
     null,
     { profile: profileName },
   );
 }
 
-export function readCredentials(
-  path: string,
-  profileBaseUrl: string | null,
-  profileName: string,
-): Credentials {
+export function readCredentials(path: string, profileBaseUrl: string | null, profileName: string): Credentials {
   const text = readFile(path, profileName);
 
   let json: unknown;
-  let isJson = true;
   try {
-    json = JSON.parse(text) as unknown;
+    json = JSON.parse(text.replace(/^\uFEFF/u, '')) as unknown;
   } catch {
-    isJson = false;
+    throw new ToolError(
+      'credentials_incomplete',
+      `Файл учётных данных профиля ${profileName} в ${path} должен содержать корректный JSON.`,
+      null,
+      { profile: profileName },
+    );
   }
 
-  return isJson
-    ? fromJson(json, path, profileBaseUrl, profileName)
-    : fromLegacy(text, path, profileBaseUrl, profileName);
+  return fromJson(json, path, profileBaseUrl, profileName);
 }

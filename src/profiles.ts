@@ -1,14 +1,29 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { expectTable } from './configValues.ts';
-import { loadRootConfig } from './config.ts';
+import { loadRootConfig, resolveConfigPath } from './config.ts';
+import { readConfigDocument } from './configValues.ts';
 import { type CredentialsFileState, credentialsFileState } from './credentials.ts';
 import { ToolError } from './errors.ts';
 import { defaultCredentialsFilePath, parseProfile, type Profile } from './profile.ts';
 
 export const PROFILE_VARIABLE = 'TT_STAND_PROFILE';
-const LEGACY_PROFILE_NAME = 'default';
+
+export interface ProfileSelection {
+  rootPath: string;
+  name: string;
+  source: 'flag' | 'env' | 'config' | 'default';
+  profilePath: string;
+  credentialsPath: string;
+  defaultProfile: string | null;
+  legacy?: boolean;
+}
+
+interface SelectionOptions {
+  rootPath?: string;
+  environment?: NodeJS.ProcessEnv;
+  allowEmptyDefault?: boolean;
+}
 
 export function profilesDirectory(configPath: string): string {
   return join(dirname(configPath), 'profiles');
@@ -22,74 +37,49 @@ export function listProfileNames(directory: string): string[] {
     .sort();
 }
 
-function readProfileDocument(path: string): Record<string, unknown> {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  } catch (cause) {
-    throw new ToolError(
-      'config_invalid',
-      `Файл профиля ${path} не разбирается как JSON: ${(cause as Error).message}`,
-    );
-  }
-  return expectTable(raw, 'корень файла профиля', path) ?? {};
-}
-
 export function loadProfile(name: string, directory: string): Profile {
   const profileDirectory = join(directory, name);
   const path = join(profileDirectory, 'profile.json');
-  const raw = existsSync(path) ? readProfileDocument(path) : {};
+  const raw = existsSync(path) ? readConfigDocument(path) : {};
   return parseProfile(raw, name, path, defaultCredentialsFilePath(profileDirectory));
 }
 
-function hasLegacyFields(raw: Record<string, unknown>): boolean {
-  return raw.grafana !== undefined || raw.kubernetes !== undefined || raw.repositoryRoots !== undefined;
-}
-
 function legacyProfileFromRoot(raw: Record<string, unknown>, path: string): Profile {
-  const legacyCredentialsFile = join(homedir(), '.tt-stand', '.grafana-ro');
-  const profile = parseProfile(raw, LEGACY_PROFILE_NAME, path, legacyCredentialsFile);
-  return {
-    ...profile,
-    grafana: profile.grafana ?? {
-      baseUrl: null,
-      credentialsFile: legacyCredentialsFile,
-      timeoutSeconds: null,
-      datasourceUid: null,
-      metricsDatasourceUid: null,
-    },
-    kubernetes: profile.kubernetes ?? { kubeconfig: null, context: null },
+  const credentialsFile = join(homedir(), '.tt-stand', '.grafana-ro');
+  const profile = parseProfile(raw, 'default', path, defaultCredentialsFilePath(dirname(path)));
+  const grafana = profile.grafana ?? {
+    baseUrl: null,
+    credentialsFile,
+    timeoutSeconds: null,
+    datasourceUid: null,
+    metricsDatasourceUid: null,
   };
+  if (raw.grafana && typeof raw.grafana === 'object' && !Object.hasOwn(raw.grafana, 'credentialsFile')) {
+    grafana.credentialsFile = credentialsFile;
+  }
+  return { ...profile, grafana, kubernetes: profile.kubernetes ?? { kubeconfig: null, context: null } };
 }
 
-export interface ProfilesDiscovery {
+export function discoverProfiles(configArgument?: string): {
   rootPath: string;
   profilesDir: string;
   defaultProfile: string | null;
   names: string[];
   legacyProfile: Profile | null;
-}
-
-export function discoverProfiles(configArgument?: string): ProfilesDiscovery {
+} {
   const root = loadRootConfig(configArgument);
   const profilesDir = profilesDirectory(root.path);
   const names = listProfileNames(profilesDir);
-  const legacyProfile =
-    names.length === 0 && root.raw !== null && hasLegacyFields(root.raw)
-      ? legacyProfileFromRoot(root.raw, root.path)
-      : null;
-
+  const legacy =
+    root.raw !== null && ['grafana', 'kubernetes', 'repositoryRoots'].some((key) => root.raw![key] !== undefined);
+  const legacyProfile = names.length === 0 && legacy ? legacyProfileFromRoot(root.raw!, root.path) : null;
   return {
     rootPath: root.path,
     profilesDir,
     defaultProfile: root.config.defaultProfile,
-    names: legacyProfile ? [legacyProfile.name] : names,
+    names: legacyProfile ? ['default'] : names,
     legacyProfile,
   };
-}
-
-function emptyToNull(value: string | undefined): string | null {
-  return value !== undefined && value.length > 0 ? value : null;
 }
 
 export function resolveProfileName(
@@ -99,21 +89,20 @@ export function resolveProfileName(
   profilesDir: string,
   environment: NodeJS.ProcessEnv = process.env,
 ): string {
-  const requested = argument ?? emptyToNull(environment[PROFILE_VARIABLE]) ?? defaultProfile;
-
+  const requested = argument ?? (environment[PROFILE_VARIABLE] || null) ?? defaultProfile;
   if (requested !== null) {
     if (!names.includes(requested)) {
       throw new ToolError(
         'profile_missing',
-        `Профиль «${requested}» не найден. Имеющиеся профили: ${names.length > 0 ? names.join(', ') : '(нет ни одного)'}.`,
+        `Профиль ${requested} отсутствует по пути ${join(profilesDir, requested, 'profile.json')}. ` +
+          `Имеющиеся профили ${names.join(', ') || '(нет ни одного)'}.`,
         null,
         { requestedProfile: requested, profiles: names },
       );
     }
     return requested;
   }
-
-  if (names.length === 1) return names[0] as string;
+  if (names.length === 1) return names[0]!;
   if (names.length === 0) {
     throw new ToolError(
       'profile_missing',
@@ -124,59 +113,99 @@ export function resolveProfileName(
   }
   throw new ToolError(
     'profile_ambiguous',
-    `Профиль не выбран, а их несколько: ${names.join(', ')}. Укажите --profile <имя>, переменную ${PROFILE_VARIABLE} либо defaultProfile в config.json.`,
+    `Профиль не выбран. Укажите --profile, ${PROFILE_VARIABLE} или defaultProfile в config.json. ` +
+      `Имеющиеся профили ${names.join(', ')}.`,
     null,
     { profiles: names },
   );
 }
 
-export function resolveActiveProfile(
-  configArgument: string | undefined,
-  profileArgument: string | null,
-): Profile {
-  const discovery = discoverProfiles(configArgument);
-  const name = resolveProfileName(
-    profileArgument,
-    discovery.names,
-    discovery.defaultProfile,
-    discovery.profilesDir,
-  );
-  return discovery.legacyProfile ?? loadProfile(name, discovery.profilesDir);
+function selectionSource(
+  argument: string | null,
+  environment: NodeJS.ProcessEnv,
+  defaultProfile: string | null,
+): ProfileSelection['source'] {
+  if (argument !== null) return 'flag';
+  if (environment[PROFILE_VARIABLE]) return 'env';
+  return defaultProfile !== null ? 'config' : 'default';
+}
+
+export function resolveProfileSelection(
+  configArgument?: string,
+  profileArgument: string | null = null,
+  options: SelectionOptions = {},
+): ProfileSelection {
+  const rootArgument = options.rootPath ?? configArgument;
+  const rootPath = resolveConfigPath(rootArgument);
+  const environment = options.environment ?? process.env;
+  const discovery = discoverProfiles(rootArgument);
+  const effectiveDefault = discovery.defaultProfile;
+  const name =
+    options.allowEmptyDefault &&
+    discovery.names.length === 0 &&
+    profileArgument === null &&
+    !environment[PROFILE_VARIABLE] &&
+    effectiveDefault === null
+      ? 'default'
+      : resolveProfileName(profileArgument, discovery.names, effectiveDefault, discovery.profilesDir, environment);
+  const source = selectionSource(profileArgument, environment, discovery.defaultProfile);
+  const profilePath = discovery.legacyProfile?.path ?? join(discovery.profilesDir, name, 'profile.json');
+  return {
+    rootPath,
+    name,
+    source,
+    profilePath,
+    defaultProfile: discovery.defaultProfile,
+    credentialsPath: defaultCredentialsFilePath(dirname(profilePath)),
+    legacy: discovery.legacyProfile !== null,
+  };
+}
+
+export function loadSelectedProfile(selection: ProfileSelection): Profile {
+  const raw = existsSync(selection.profilePath) ? readConfigDocument(selection.profilePath) : {};
+  return selection.legacy
+    ? legacyProfileFromRoot(raw, selection.profilePath)
+    : parseProfile(raw, selection.name, selection.profilePath, selection.credentialsPath);
+}
+
+export function resolveActiveProfile(configArgument: string | undefined, profileArgument: string | null): Profile {
+  return loadSelectedProfile(resolveProfileSelection(configArgument, profileArgument));
 }
 
 export interface ProfileSummary {
   name: string;
+  servers: Record<string, string>;
   hasGrafana: boolean;
   hasKubernetes: boolean;
   hasNamespaceScope: boolean;
   isDefault: boolean;
+  isCurrent: boolean;
   credentials: CredentialsFileState;
 }
 
-function credentialsPathFor(name: string, profile: Profile, profilesDir: string): string {
-  return profile.grafana?.credentialsFile ?? defaultCredentialsFilePath(join(profilesDir, name));
-}
-
-export function summarizeProfiles(configArgument?: string): {
-  profiles: ProfileSummary[];
-  defaultProfile: string | null;
-} {
-  const discovery = discoverProfiles(configArgument);
+export function summarizeProfiles(
+  configArgument?: string,
+  profileArgument: string | null = null,
+  rootPath?: string,
+): { profiles: ProfileSummary[]; defaultProfile: string | null; currentProfile: string } {
+  const discovery = discoverProfiles(rootPath ?? configArgument);
   const profiles = discovery.legacyProfile
     ? [discovery.legacyProfile]
     : discovery.names.map((name) => loadProfile(name, discovery.profilesDir));
-  const effectiveDefault =
-    discovery.defaultProfile ?? (profiles.length === 1 ? (profiles[0] as Profile).name : null);
-
+  const defaultProfile = discovery.defaultProfile ?? (profiles.length === 1 ? profiles[0]!.name : null);
+  const currentProfile = profileArgument ?? (process.env[PROFILE_VARIABLE] || null) ?? defaultProfile ?? 'default';
   return {
-    defaultProfile: effectiveDefault,
+    defaultProfile,
+    currentProfile,
     profiles: profiles.map((profile) => ({
       name: profile.name,
+      servers: Object.fromEntries(Object.entries(profile.servers).map(([name, server]) => [name, server.kind])),
       hasGrafana: profile.grafana !== null,
       hasKubernetes: profile.kubernetes !== null,
       hasNamespaceScope: profile.namespaceScope !== null,
-      isDefault: profile.name === effectiveDefault,
-      credentials: credentialsFileState(credentialsPathFor(profile.name, profile, discovery.profilesDir)),
+      isDefault: profile.name === defaultProfile,
+      isCurrent: profile.name === currentProfile,
+      credentials: credentialsFileState(profile.grafana?.credentialsFile ?? profile.credentialsFile),
     })),
   };
 }

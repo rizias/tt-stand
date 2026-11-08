@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { type LogsContext, runHttpLogs } from '../src/commands/logs.ts';
 import { readTokenFromStdin } from '../src/commands/token.ts';
 import { parseHttpMessage } from '../src/http.ts';
@@ -13,6 +13,49 @@ function part(value: unknown): string {
 function jwt(header: unknown, payload: unknown): string {
   return `${part(header)}.${part(payload)}.test-signature`;
 }
+
+test('некорректные символы подписи токена дают token_invalid', () => {
+  assert.throws(() => decodeToken(`${part({ alg: 'HS256' })}.${part({ sub: 'test' })}.bad!`), {
+    errorClass: 'token_invalid',
+  });
+});
+
+test('HTTP-разбор не извлекает допустимый префикс испорченного JWT', () => {
+  const message = `GET /?token=${part({ alg: 'HS256' })}.${part({ sub: 'test' })}.bad! HTTP/1.1`;
+  assert.deepEqual(parseHttpMessage(message)?.tokens, []);
+  assert.deepEqual(parseHttpMessage(message.replace('bad!', 'bad;evil'))?.tokens, []);
+  for (const suffix of [
+    '%26evil',
+    '%2Fevil',
+    '%3Fevil',
+    '%23evil',
+    '%20evil',
+    '%22evil',
+    '%27evil',
+    '%3Cevil',
+    '%3Eevil',
+    '=evil',
+    '/evil',
+    '?evil',
+  ]) {
+    assert.deepEqual(parseHttpMessage(message.replace('bad!', `bad${suffix}`))?.tokens, []);
+  }
+});
+
+test('HTTP-разбор находит токен внутри адреса после Bearer', () => {
+  const token = `${part({ alg: 'HS256' })}.${part({ sub: 'test' })}.signature`;
+  const message = `GET /?message=Bearer%20${token} HTTP/1.1`;
+  assert.equal(parseHttpMessage(message)?.tokens[0]?.value, token);
+  assert.equal(parseHttpMessage(message.replace('Bearer%20', 'Bearer+'))?.tokens[0]?.value, token);
+});
+
+test('HTTP-статус без размера сохраняется, заглушка user-agent становится null', () => {
+  const parsed = parseHttpMessage('"GET /health HTTP/1.1" 204');
+  assert.equal(parsed?.responseStatus, 204);
+  assert.equal(parsed?.responseSize, null);
+  const withPlaceholder = parseHttpMessage('"GET /health HTTP/1.1" 204 - "-" "-"');
+  assert.equal(withPlaceholder?.userAgent, null);
+});
 
 test('строка веб-трафика разбирается вместе с токеном, исходные значения не меняются', () => {
   const token = jwt(
@@ -69,7 +112,12 @@ test('неразбираемая строка остаётся в выдаче �
         bodyMissing: false,
       }),
     },
-    datasource: { uid: 'fictional', name: 'вымышленный источник', type: 'victoriametrics-logs-datasource', candidates: [] },
+    datasource: {
+      uid: 'fictional',
+      name: 'вымышленный источник',
+      type: 'victoriametrics-logs-datasource',
+      candidates: [],
+    },
     profile: 'default',
     namespaceScope: null,
   } as unknown as LogsContext;
@@ -156,9 +204,7 @@ test('испорченный percent-escape в адресе не мешает р
 
 test('кириллица в адресе декодируется целиком', () => {
   const token = `${part({ alg: 'HS256' })}.${part({ sub: '8' })}.c2ln`;
-  const parsed = parseHttpMessage(
-    `1.2.3.4 - - "GET /%D0%BF%D0%BE%D0%B8%D1%81%D0%BA?t=${token} HTTP/1.1" 200 5`,
-  );
+  const parsed = parseHttpMessage(`1.2.3.4 - - "GET /%D0%BF%D0%BE%D0%B8%D1%81%D0%BA?t=${token} HTTP/1.1" 200 5`);
   assert.ok(parsed);
   assert.equal(parsed.tokens.length, 1);
 });

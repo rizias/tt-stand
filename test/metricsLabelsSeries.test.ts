@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import {
-  runMetricsLabels,
-  runMetricsSeries,
-  type MetricsContext,
-} from '../src/commands/metrics.ts';
+import { test } from 'vitest';
+import { runMetricsLabels, runMetricsSeries, type MetricsContext } from '../src/commands/metrics.ts';
 import type { Datasource } from '../src/datasource.ts';
 import { GrafanaTransport } from '../src/grafanaTransport.ts';
 
@@ -98,10 +94,7 @@ test('metrics labels --label namespace: GET, значения фильтруют
     const echo = response.echo as unknown as Record<string, unknown>;
     assert.equal(echo.recordsOutOfScope, 1);
     assert.equal(response.incomplete, true);
-    assert.match(
-      response.incompleteReasons.join(' '),
-      /часть значений метки namespace не попала в ответ/,
-    );
+    assert.match(response.incompleteReasons.join(' '), /часть значений метки namespace не попала в ответ/);
     assert.doesNotMatch(response.incompleteReasons.join(' '), /часть рядов не попала в ответ/);
   } finally {
     restore();

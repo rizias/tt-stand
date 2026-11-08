@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { CONFIG_TEMPLATE } from '../config.ts';
+import { validateProfileName } from '../configValues.ts';
+import { atomicWriteFile, createFileExclusive, withFileLockAsync } from '../lock.ts';
 import { ToolError } from '../errors.ts';
 import { buildProfileTemplate, defaultCredentialsFilePath } from '../profile.ts';
 import { profilesDirectory } from '../profiles.ts';
@@ -19,7 +20,10 @@ async function confirmOverwrite(blockingPath: string): Promise<boolean> {
 
 function writeOverwritable(path: string, content: string, allowOverwrite: boolean): void {
   try {
-    writeFileSync(path, content, { encoding: 'utf8', flag: allowOverwrite ? 'w' : 'wx' });
+    if (allowOverwrite) atomicWriteFile(path, content);
+    else if (!createFileExclusive(path, content)) {
+      throw new ToolError('config_exists', `Файл ${path} уже создан другим процессом.`);
+    }
   } catch (cause) {
     const error = cause as NodeJS.ErrnoException;
     if (error.code === 'EEXIST') {
@@ -32,20 +36,27 @@ function writeOverwritable(path: string, content: string, allowOverwrite: boolea
   }
 }
 
-export async function runConfigInit(rootPath: string, force: boolean): Promise<ToolResponse> {
-  const profileDirectory = join(profilesDirectory(rootPath), DEFAULT_PROFILE_NAME);
+export async function runConfigInit(rootPath: string, force: boolean, profileName?: string): Promise<ToolResponse> {
+  validateProfileName(profileName ?? DEFAULT_PROFILE_NAME, '--profile');
+  return withFileLockAsync(`${rootPath}.lock`, () => initializeProfile(rootPath, force, profileName));
+}
+
+async function initializeProfile(rootPath: string, force: boolean, requestedProfile?: string): Promise<ToolResponse> {
+  const profileName = requestedProfile ?? DEFAULT_PROFILE_NAME;
+  const profileDirectory = join(profilesDirectory(rootPath), profileName);
   const profilePath = join(profileDirectory, 'profile.json');
   const credentialsPath = defaultCredentialsFilePath(profileDirectory);
 
   const rootExists = existsSync(rootPath);
   const profileExists = existsSync(profilePath);
-  const blockingPath = rootExists ? rootPath : profileExists ? profilePath : null;
+  const writeRoot = !rootExists || requestedProfile === undefined;
+  const blockingPath = rootExists && writeRoot ? rootPath : profileExists ? profilePath : null;
 
   if (blockingPath !== null && !force && !(await confirmOverwrite(blockingPath))) {
     return initResponse(
       {
         configPath: rootPath,
-        profile: DEFAULT_PROFILE_NAME,
+        profile: profileName,
         profilePath,
         credentialsPath,
         changed: false,
@@ -58,22 +69,24 @@ export async function runConfigInit(rootPath: string, force: boolean): Promise<T
   mkdirSync(dirname(rootPath), { recursive: true });
   mkdirSync(profileDirectory, { recursive: true });
 
-  writeOverwritable(rootPath, CONFIG_TEMPLATE, rootExists || force);
+  if (writeRoot) {
+    writeOverwritable(rootPath, `${JSON.stringify({ defaultProfile: profileName }, null, 2)}\n`, rootExists || force);
+  }
   writeOverwritable(profilePath, buildProfileTemplate(profileDirectory), profileExists || force);
 
   const credentialsExisted = existsSync(credentialsPath);
   if (!credentialsExisted) {
-    writeFileSync(credentialsPath, '', { encoding: 'utf8', flag: 'wx' });
+    createFileExclusive(credentialsPath, '');
   }
 
   return initResponse(
     {
       configPath: rootPath,
-      profile: DEFAULT_PROFILE_NAME,
+      profile: profileName,
       profilePath,
       credentialsPath,
       changed: true,
-      overwritten: rootExists || profileExists,
+      overwritten: (rootExists && writeRoot) || profileExists,
       credentialsCreated: !credentialsExisted,
     },
     `Впишите доступ в ${credentialsPath}, затем проверьте его командой tt-stand env.`,
@@ -81,6 +94,7 @@ export async function runConfigInit(rootPath: string, force: boolean): Promise<T
 }
 
 function initResponse(data: Record<string, unknown>, hint: string): ToolResponse {
+  const profileName = String(data.profile);
   return {
     ok: true,
     command: 'config init',
@@ -103,7 +117,7 @@ function initResponse(data: Record<string, unknown>, hint: string): ToolResponse
       unavailableSources: [],
       valueVariantsGenerated: ECHO_CONSTANTS.valueVariants,
       identifierPivotPerformed: ECHO_CONSTANTS.identifierPivot,
-      profile: DEFAULT_PROFILE_NAME,
+      profile: profileName,
     },
     incomplete: false,
     incompleteReasons: [],

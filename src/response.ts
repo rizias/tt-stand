@@ -50,6 +50,12 @@ export interface Echo {
   contextSource?: 'profile' | 'kubeconfig';
   field?: string | null;
   value?: string[] | null;
+  server?: string;
+  database?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  journal?: string;
+  journalRun?: string | null;
 }
 
 export const ECHO_CONSTANTS = {
@@ -83,9 +89,7 @@ export class ResponseBuilder {
   }
 
   get reasonTexts(): string[] {
-    return [...this.reasons.entries()].map(
-      ([key, detail]) => INCOMPLETENESS_REASONS[key] + (detail ?? ''),
-    );
+    return [...this.reasons.entries()].map(([key, detail]) => INCOMPLETENESS_REASONS[key] + (detail ?? ''));
   }
 }
 
@@ -132,24 +136,24 @@ function environmentLines(summary: unknown): string[] {
   return lines;
 }
 
-function recordLines(item: unknown): string[] {
+function recordLines(item: unknown, logRecord: boolean): string[] {
   if (item === null || typeof item !== 'object') return [String(item)];
   const row = item as Record<string, unknown>;
-  const record = (row.record ?? row) as Record<string, unknown>;
-  const environment = row.environment;
+  const record = (logRecord ? (row.record ?? row) : row) as Record<string, unknown>;
+  const environment = logRecord ? row.environment : undefined;
   const lines = [environment === undefined ? '---' : `--- [${environment}]`];
   for (const [field, value] of Object.entries(record)) {
     lines.push(`  ${field}: ${typeof value === 'string' ? value : JSON.stringify(value)}`);
   }
-  if ('http' in row) {
+  if (logRecord && 'http' in row) {
     lines.push(`  http: ${row.http === null ? 'null' : JSON.stringify(row.http)}`);
   }
   return lines;
 }
 
-function dataLines(data: unknown): string[] {
+function dataLines(data: unknown, logRecord: boolean): string[] {
   if (Array.isArray(data)) {
-    const lines = data.flatMap(recordLines);
+    const lines = data.flatMap((item) => recordLines(item, logRecord));
     if (data.length === 0) lines.push('Записей не найдено.');
     lines.push('');
     return lines;
@@ -170,6 +174,11 @@ function echoLines(echo: Echo): string[] {
   return lines;
 }
 
+function mongoDataLines(data: unknown): string[] {
+  if (data === null || data === undefined) return [];
+  return [JSON.stringify(data, null, 2), ''];
+}
+
 export function renderHuman(response: ToolResponse): string {
   const lines: string[] = [];
 
@@ -178,7 +187,10 @@ export function renderHuman(response: ToolResponse): string {
   }
 
   lines.push(...environmentLines(response.summary));
-  lines.push(...dataLines(response.data));
+  const logRecord = ['logs query', 'logs search', 'logs http'].includes(response.command);
+  lines.push(
+    ...(response.echo.command === 'mongo' ? mongoDataLines(response.data) : dataLines(response.data, logRecord)),
+  );
   lines.push(...echoLines(response.echo));
   lines.push('', `Результат полон: ${response.incomplete ? 'нет' : 'да'}`);
   for (const reason of response.incompleteReasons) lines.push(`  — ${reason}`);
@@ -225,6 +237,10 @@ const ECHO_LABELS: Array<[string, string]> = [
   ['fetchPerformed', 'о fetch'],
   ['refsUpdatedAtNote', 'о времени ссылок'],
   ['profile', 'профиль'],
+  ['server', 'сервер'],
+  ['database', 'база данных'],
+  ['startedAt', 'начало выполнения'],
+  ['finishedAt', 'завершение выполнения'],
   ['namespaceScope', 'область видимости'],
   ['recordsOutOfScope', 'записей вне области'],
   ['contextSource', 'источник контекста'],

@@ -1,6 +1,6 @@
 import type { Datasource } from './datasource.ts';
 import { ToolError } from './errors.ts';
-import { bodyDescription, type BodyRead, type GrafanaTransport } from './grafanaTransport.ts';
+import { type BodyRead, type GrafanaTransport } from './grafanaTransport.ts';
 
 export interface MetricsEnvelope {
   status: 'success' | 'error';
@@ -76,7 +76,9 @@ async function exchange(
   if (isErrorEnvelope(parsed)) {
     throw new ToolError(
       'metrics_query_rejected',
-      `Сервер метрик отклонил запрос: HTTP ${sent.response.status}, errorType: ${fieldText(parsed.errorType)}, error: ${fieldText(parsed.error)}; тело ответа: ${bodyDescription(body)}`,
+      transport.safeDiagnostic(
+        `Сервер метрик отклонил запрос: HTTP ${sent.response.status}, errorType: ${fieldText(parsed.errorType)}, error: ${fieldText(parsed.error)}; тело ответа: ${transport.describeBody(body)}`,
+      ),
     );
   }
 
@@ -87,7 +89,7 @@ async function exchange(
   if (!isSuccessEnvelope(parsed)) {
     throw new ToolError(
       'upstream_error',
-      `Ответ сервера метрик не разобран как конверт API Prometheus: ${bodyDescription(body)}`,
+      `Ответ сервера метрик не разобран как конверт API Prometheus: ${transport.describeBody(body)}`,
     );
   }
 

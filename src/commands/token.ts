@@ -2,9 +2,14 @@ import { ToolError } from '../errors.ts';
 import { ECHO_CONSTANTS, type ToolResponse } from '../response.ts';
 import { decodeToken } from '../token.ts';
 
-export async function readTokenFromStdin(
-  input: NodeJS.ReadableStream = process.stdin,
-): Promise<string> {
+export async function runTokenCommand(values: string[] = []): Promise<ToolResponse> {
+  if (values.length > 1) {
+    throw new ToolError('bad_request', 'Для команды token параметр --value можно задать только один раз.');
+  }
+  return tokenResponse(values[0] ?? (await readTokenFromStdin()));
+}
+
+export async function readTokenFromStdin(input: NodeJS.ReadableStream = process.stdin): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of input as AsyncIterable<string | Buffer>) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf8'));

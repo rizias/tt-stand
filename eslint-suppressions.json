@@ -1,2 +1,132 @@
 {
+  "scripts/size-check.mjs": {
+    "@stylistic/max-len": {
+      "count": 4
+    }
+  },
+  "scripts/skill-version.mjs": {
+    "@stylistic/max-len": {
+      "count": 2
+    }
+  },
+  "skills/tt-stand/references/analysis/detail-ui.mjs": {
+    "@stylistic/max-len": {
+      "count": 4
+    }
+  },
+  "skills/tt-stand/references/analysis/page.mjs": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "skills/tt-stand/references/analysis/timeline.mjs": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/cli/args.ts": {
+    "@stylistic/max-len": {
+      "count": 3
+    }
+  },
+  "src/commands/image.ts": {
+    "@stylistic/max-len": {
+      "count": 2
+    }
+  },
+  "src/commands/logsEcho.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/datasource.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/errors.ts": {
+    "@stylistic/max-len": {
+      "count": 6
+    }
+  },
+  "src/grafana.ts": {
+    "@stylistic/max-len": {
+      "count": 2
+    }
+  },
+  "src/grafanaTransport.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/k8s/actions.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/k8s/discovery.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/k8s/kubeconfig.ts": {
+    "@stylistic/max-len": {
+      "count": 3
+    }
+  },
+  "src/k8s/session.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/metrics.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/queryFile.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "src/scope.ts": {
+    "@stylistic/max-len": {
+      "count": 3
+    }
+  },
+  "src/skills/updater.ts": {
+    "@stylistic/max-len": {
+      "count": 3
+    }
+  },
+  "src/skills/updaterState.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "test/datasource.test.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "test/metricsLabelsSeries.test.ts": {
+    "@stylistic/max-len": {
+      "count": 3
+    }
+  },
+  "test/metricsShapeGuard.test.ts": {
+    "@stylistic/max-len": {
+      "count": 4
+    }
+  },
+  "test/reportUx.test.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  },
+  "test/skill.test.ts": {
+    "@stylistic/max-len": {
+      "count": 1
+    }
+  }
 }

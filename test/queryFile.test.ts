@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { readQueryFile, resolveQuery } from '../src/queryFile.ts';
 
 function workspace(): string {
@@ -67,8 +67,7 @@ test('файла нет — bad_request, текст называет путь', 
     const path = join(dir, 'нет-такого.txt');
     assert.throws(
       () => readQueryFile(path),
-      (error: Error & { errorClass?: string }) =>
-        error.errorClass === 'bad_request' && error.message.includes(path),
+      (error: Error & { errorClass?: string }) => error.errorClass === 'bad_request' && error.message.includes(path),
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });

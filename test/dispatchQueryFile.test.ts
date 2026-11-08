@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import type { ParsedValues } from '../src/cli/args.ts';
 import { dispatchLogs } from '../src/cli/dispatch.ts';
 import { dispatchMetrics } from '../src/cli/dispatchMetrics.ts';
@@ -21,10 +21,7 @@ function installation(): { dir: string; config: string } {
       },
     }),
   );
-  writeFileSync(
-    join(profileDir, 'credentials.json'),
-    JSON.stringify({ kind: 'basic', login: 'u', password: 'p' }),
-  );
+  writeFileSync(join(profileDir, 'credentials.json'), JSON.stringify({ kind: 'basic', login: 'u', password: 'p' }));
   const config = join(dir, 'config.json');
   writeFileSync(config, JSON.stringify({ defaultProfile: 'default' }));
   return { dir, config };
@@ -67,10 +64,7 @@ test('logs query --query-file: содержимое файла доходит д
   try {
     const queryPath = join(dir, 'query.logsql');
     writeFileSync(queryPath, 'upstream:"<a>|b&c" | stats count()');
-    const response = await dispatchLogs(
-      'query',
-      values({ 'query-file': queryPath, start: '-1h', end: 'now' }, config),
-    );
+    const response = await dispatchLogs('query', values({ 'query-file': queryPath, start: '-1h', end: 'now' }, config));
     const sent = new URLSearchParams(captured[0]?.body);
     assert.equal(sent.get('query'), 'upstream:"<a>|b&c" | stats count()');
     const echo = response.echo as unknown as Record<string, unknown>;
@@ -88,11 +82,7 @@ test('logs query: оба флага сразу — bad_request до обраще
     const queryPath = join(dir, 'query.logsql');
     writeFileSync(queryPath, '*');
     await assert.rejects(
-      () =>
-        dispatchLogs(
-          'query',
-          values({ query: '*', 'query-file': queryPath, start: '-1h', end: 'now' }, config),
-        ),
+      () => dispatchLogs('query', values({ query: '*', 'query-file': queryPath, start: '-1h', end: 'now' }, config)),
       (error: Error & { errorClass?: string }) => error.errorClass === 'bad_request',
     );
   } finally {
@@ -105,11 +95,7 @@ test('logs query --query-file: файла нет — bad_request называе�
   try {
     const queryPath = join(dir, 'нет-такого.logsql');
     await assert.rejects(
-      () =>
-        dispatchLogs(
-          'query',
-          values({ 'query-file': queryPath, start: '-1h', end: 'now' }, config),
-        ),
+      () => dispatchLogs('query', values({ 'query-file': queryPath, start: '-1h', end: 'now' }, config)),
       (error: Error & { errorClass?: string; message: string }) =>
         error.errorClass === 'bad_request' && error.message.includes(queryPath),
     );
@@ -147,10 +133,7 @@ test('metrics query: оба флага сразу — bad_request', async () => 
     writeFileSync(queryPath, 'up');
     await assert.rejects(
       () =>
-        dispatchMetrics(
-          'query',
-          values({ query: 'up', 'query-file': queryPath, start: '-1h', end: 'now' }, config),
-        ),
+        dispatchMetrics('query', values({ query: 'up', 'query-file': queryPath, start: '-1h', end: 'now' }, config)),
       (error: Error & { errorClass?: string }) => error.errorClass === 'bad_request',
     );
   } finally {
@@ -233,11 +216,7 @@ test('metrics query --query-file: файла нет — эхо отказа на
   try {
     const queryPath = join(dir, 'нет-такого.promql');
     await assert.rejects(
-      () =>
-        dispatchMetrics(
-          'query',
-          values({ 'query-file': queryPath, start: '-1h', end: 'now' }, config),
-        ),
+      () => dispatchMetrics('query', values({ 'query-file': queryPath, start: '-1h', end: 'now' }, config)),
       (error: Error & { errorClass?: string; echo?: Record<string, unknown> }) =>
         error.errorClass === 'bad_request' && error.echo?.queryFile === queryPath,
     );
@@ -252,18 +231,9 @@ test('logs http: --query-file и --value одновременно — эхо о�
     const queryPath = join(dir, 'query.logsql');
     writeFileSync(queryPath, '*');
     await assert.rejects(
-      () =>
-        dispatchLogs(
-          'http',
-          values(
-            { 'query-file': queryPath, value: ['x'], start: '-1h', end: 'now' },
-            config,
-          ),
-        ),
+      () => dispatchLogs('http', values({ 'query-file': queryPath, value: ['x'], start: '-1h', end: 'now' }, config)),
       (error: Error & { errorClass?: string; echo?: Record<string, unknown> }) =>
-        error.errorClass === 'bad_request' &&
-        error.echo?.query === '*' &&
-        error.echo?.queryFile === queryPath,
+        error.errorClass === 'bad_request' && error.echo?.query === '*' && error.echo?.queryFile === queryPath,
     );
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -291,10 +261,7 @@ test('metrics query: отказ при выборе источника несё�
     join(profileDir, 'profile.json'),
     JSON.stringify({ grafana: { baseUrl: 'https://grafana.example.invalid' } }),
   );
-  writeFileSync(
-    join(profileDir, 'credentials.json'),
-    JSON.stringify({ kind: 'basic', login: 'u', password: 'p' }),
-  );
+  writeFileSync(join(profileDir, 'credentials.json'), JSON.stringify({ kind: 'basic', login: 'u', password: 'p' }));
   const config = join(dir, 'config.json');
   writeFileSync(config, JSON.stringify({ defaultProfile: 'default' }));
 
@@ -303,11 +270,7 @@ test('metrics query: отказ при выборе источника несё�
     Response.json([{ uid: 'a', name: 'логи', type: 'victoriametrics-logs-datasource' }])) as unknown as typeof fetch;
   try {
     await assert.rejects(
-      () =>
-        dispatchMetrics(
-          'query',
-          values({ query: 'up', start: '-1h', end: 'now' }, config),
-        ),
+      () => dispatchMetrics('query', values({ query: 'up', start: '-1h', end: 'now' }, config)),
       (error: Error & { errorClass?: string; echo?: Record<string, unknown> }) =>
         error.errorClass === 'datasource_not_found' &&
         error.echo?.query === 'up' &&

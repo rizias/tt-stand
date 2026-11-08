@@ -2,5 +2,9 @@
 useDefault = true
 
 [allowlist]
-description = "Примеры разбора токена в документации: рядом с токеном напечатана его расшифровка, подмена значения сделала бы пример неверным"
-paths = ['''docs/output\.md''']
+description = "Публичный пример JWT с расшифровкой и искусственное имя upstream из теста"
+regexTarget = "secret"
+regexes = [
+  '''^eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0\.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30$''',
+  '''^fictional-missing-a-api-8000$''',
+]

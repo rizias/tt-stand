@@ -1,5 +1,5 @@
 import { ToolError } from './errors.ts';
-import { bodyDescription, type BodyRead, type GrafanaTransport, type SentRequest } from './grafanaTransport.ts';
+import { type BodyRead, type GrafanaTransport, type SentRequest } from './grafanaTransport.ts';
 
 export const LOGS_DATASOURCE_TYPES = ['victoriametrics-logs-datasource'] as const;
 export const METRICS_DATASOURCE_TYPES = [
@@ -25,10 +25,7 @@ function typesText(types: readonly string[]): string {
   return types.length === 1 ? `с типом ${types[0]}` : `с типом из перечня: ${types.join(', ')}`;
 }
 
-async function requestDatasourceList(
-  transport: GrafanaTransport,
-  settingName: string,
-): Promise<SentRequest> {
+async function requestDatasourceList(transport: GrafanaTransport, settingName: string): Promise<SentRequest> {
   try {
     return await transport.sendOk('GET', `${transport.baseUrl}/api/datasources`, null);
   } catch (cause) {
@@ -79,7 +76,7 @@ export async function resolveDatasource(
   if (!Array.isArray(list)) {
     throw new ToolError(
       'upstream_error',
-      `Список источников данных пришёл не массивом: ${bodyDescription(parsed.body)}`,
+      `Список источников данных пришёл не массивом: ${transport.describeBody(parsed.body)}`,
     );
   }
 
@@ -99,9 +96,11 @@ export async function resolveDatasource(
   if (problem !== null) {
     throw new ToolError(
       'upstream_error',
-      `Grafana вернула источник данных ${String(chosen.name)} (${String(chosen.type)}), у которого ${problem}: ` +
-        `такое значение нельзя передать сегментом пути /api/datasources/proxy/uid/<uid>/. ` +
-        `Задайте источник явно: ${settingName} в файле конфигурации.`,
+      transport.safeDiagnostic(
+        `Grafana вернула источник данных ${String(chosen.name)} (${String(chosen.type)}), у которого ${problem}: ` +
+          `такое значение нельзя передать сегментом пути /api/datasources/proxy/uid/<uid>/. ` +
+          `Задайте источник явно: ${settingName} в файле конфигурации.`,
+      ),
     );
   }
   return { uid: chosen.uid, name: chosen.name, type: chosen.type, candidates };

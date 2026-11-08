@@ -5,15 +5,22 @@ function asToolError(cause: unknown): ToolError {
   if (cause instanceof ToolError) return cause;
   const native = cause as Error & { code?: string };
   const isArgvProblem = typeof native.code === 'string' && native.code.startsWith('ERR_PARSE_ARGS');
-  return new ToolError(isArgvProblem ? 'bad_request' : 'upstream_error', native.message);
+  if (isArgvProblem) {
+    return new ToolError(
+      'bad_request',
+      'Некорректные аргументы команды. Проверьте имена и значения флагов по tt-stand --help.',
+    );
+  }
+  return new ToolError('upstream_error', native.message);
 }
 
 export function failureResponse(cause: unknown, command: string): ToolResponse {
   const error = asToolError(cause);
-  const partial = error.partialPayload as
-    | { records?: unknown[]; unparsableLines?: number }
-    | undefined;
+  const partial = error.partialPayload as { records?: unknown[]; unparsableLines?: number } | undefined;
   const records = partial?.records ?? null;
+  const interrupted =
+    records !== null ||
+    (command === 'mongo' && (error.errorClass === 'timeout_client' || error.errorClass === 'stream_aborted'));
 
   return {
     ok: false,
@@ -27,7 +34,7 @@ export function failureResponse(cause: unknown, command: string): ToolResponse {
       start: null,
       end: null,
       limit: null,
-      limitNote: records ? 'запрос прерван до конца' : 'команда не дошла до запроса',
+      limitNote: interrupted ? 'запрос прерван до конца' : 'команда не дошла до запроса',
       datasource: null,
       datasourceNote: null,
       recordsReturned: records?.length ?? 0,
@@ -40,9 +47,7 @@ export function failureResponse(cause: unknown, command: string): ToolResponse {
       ...error.echo,
     },
     incomplete: true,
-    incompleteReasons: [
-      records ? INCOMPLETENESS_REASONS.commandInterrupted : INCOMPLETENESS_REASONS.commandFailed,
-    ],
+    incompleteReasons: [interrupted ? INCOMPLETENESS_REASONS.commandInterrupted : INCOMPLETENESS_REASONS.commandFailed],
     errorClass: error.errorClass,
     error: error.message,
   };

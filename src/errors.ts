@@ -7,6 +7,12 @@ export const ERROR_CLASSES = [
   'timeout_client',
   'upstream_error',
   'metrics_query_rejected',
+  'ssh_connection_failed',
+  'ssh_host_key_invalid',
+  'ssh_auth_failed',
+  'mongo_auth_failed',
+  'mongo_access_forbidden',
+  'mongo_query_failed',
   'stream_aborted',
   'bad_request',
   'config_invalid',
@@ -28,6 +34,8 @@ export const ERROR_CLASSES = [
   'previous_log_unavailable',
   'git_unavailable',
   'skill_copy_skipped',
+  'output_write_failed',
+  'report_render_failed',
 ] as const;
 
 export type ErrorClass = (typeof ERROR_CLASSES)[number];
@@ -37,12 +45,7 @@ export class ToolError extends Error {
   readonly partialPayload?: unknown;
   readonly echo: Record<string, unknown>;
 
-  constructor(
-    errorClass: ErrorClass,
-    message: string,
-    partialPayload?: unknown,
-    echo: Record<string, unknown> = {},
-  ) {
+  constructor(errorClass: ErrorClass, message: string, partialPayload?: unknown, echo: Record<string, unknown> = {}) {
     super(message);
     this.name = 'ToolError';
     this.errorClass = errorClass;

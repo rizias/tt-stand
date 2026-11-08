@@ -19,10 +19,7 @@ const BASE64URL = /^[A-Za-z0-9_-]+$/u;
 
 function decodePart(value: string, partName: string): unknown {
   if (!BASE64URL.test(value)) {
-    throw new ToolError(
-      'token_invalid',
-      `${partName} токена содержит символы, недопустимые для base64url.`,
-    );
+    throw new ToolError('token_invalid', `${partName} токена содержит символы, недопустимые для base64url.`);
   }
 
   let text: string;
@@ -38,10 +35,7 @@ function decodePart(value: string, partName: string): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch (cause) {
-    throw new ToolError(
-      'token_invalid',
-      `${partName} токена не содержит JSON: ${(cause as Error).message}`,
-    );
+    throw new ToolError('token_invalid', `${partName} токена не содержит JSON: ${(cause as Error).message}`);
   }
 }
 
@@ -69,10 +63,10 @@ export function decodeToken(value: string): DecodedToken {
   const token = value.trim();
   const parts = token.split('.');
   if (parts.length !== 3 || parts[0]?.length === 0 || parts[1]?.length === 0) {
-    throw new ToolError(
-      'token_invalid',
-      'Ожидался токен в compact-формате из трёх частей: header.payload.signature.',
-    );
+    throw new ToolError('token_invalid', 'Ожидался токен в compact-формате из трёх частей: header.payload.signature.');
+  }
+  if (parts[2] && !BASE64URL.test(parts[2])) {
+    throw new ToolError('token_invalid', 'Подпись токена содержит символы, недопустимые для base64url.');
   }
 
   const header = decodePart(parts[0] as string, 'Заголовок');
@@ -84,7 +78,6 @@ export function decodeToken(value: string): DecodedToken {
     issuedAt: readableTime(claim(payload, 'iat')),
     expiresAt: readableTime(claim(payload, 'exp')),
     signatureVerified: false,
-    verificationNote:
-      'Подпись не проверялась: содержимое — утверждение из токена, а не установленная личность.',
+    verificationNote: 'Подпись не проверялась: содержимое — утверждение из токена, а не установленная личность.',
   };
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { test } from 'vitest';
 import { GrafanaClient } from '../src/grafana.ts';
 
 const credentials = {
@@ -9,7 +9,12 @@ const credentials = {
   baseUrl: 'https://grafana.example.invalid',
 };
 
-const datasource = { uid: 'test-uid', name: 'тестовый источник', type: 'victoriametrics-logs-datasource', candidates: [] };
+const datasource = {
+  uid: 'test-uid',
+  name: 'тестовый источник',
+  type: 'victoriametrics-logs-datasource',
+  candidates: [],
+};
 
 function client(timeoutSeconds: number | null = 5): GrafanaClient {
   return new GrafanaClient({ credentials, timeoutSeconds });
@@ -29,8 +34,7 @@ function stubFetch(body: string): () => void {
 
 function stubStatus(status: number, statusText: string): () => void {
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response('отказ', { status, statusText })) as unknown as typeof fetch;
+  globalThis.fetch = (async () => new Response('отказ', { status, statusText })) as unknown as typeof fetch;
   return () => {
     globalThis.fetch = original;
   };
@@ -43,6 +47,84 @@ function stubJson(body: unknown): () => void {
     globalThis.fetch = original;
   };
 }
+
+test('адрес Grafana с userinfo не попадает в ошибку и наблюдатель запроса', async () => {
+  const original = globalThis.fetch;
+  const observed: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    throw new TypeError(`Failed to parse URL from ${url}`);
+  }) as typeof fetch;
+  try {
+    const unsafe = new GrafanaClient({
+      credentials: { ...credentials, baseUrl: 'https://synthetic-user:synthetic-password@grafana.example.invalid' },
+      timeoutSeconds: 5,
+      observer: () => (end) => {
+        observed.push(JSON.stringify(end));
+      },
+    });
+    await assert.rejects(
+      () => unsafe.queryLogs(datasource, new URLSearchParams(), null),
+      (error: Error) => !error.message.includes('synthetic-password') && !error.message.includes('synthetic-user'),
+    );
+    assert.ok(!observed.join('').includes('synthetic-password'));
+    assert.ok(!observed.join('').includes('synthetic-user'));
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('загруженный токен не попадает в диагностическое тело отказа Grafana', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response('synthetic-secret', { status: 500 })) as typeof fetch;
+  try {
+    const secured = new GrafanaClient({
+      credentials: { kind: 'token', token: 'synthetic-secret', baseUrl: credentials.baseUrl },
+      timeoutSeconds: 5,
+    });
+    await assert.rejects(
+      () => secured.queryLogs(datasource, new URLSearchParams(), null),
+      (error: Error) => !error.message.includes('synthetic-secret'),
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('base64 от Basic-доступа не попадает в диагностическое тело отказа', async () => {
+  const original = globalThis.fetch;
+  const encoded = Buffer.from('synthetic-user:synthetic-pass').toString('base64');
+  globalThis.fetch = (async () => new Response(encoded, { status: 500 })) as typeof fetch;
+  try {
+    const secured = new GrafanaClient({
+      credentials: {
+        kind: 'basic',
+        login: 'synthetic-user',
+        password: 'synthetic-pass',
+        baseUrl: credentials.baseUrl,
+      },
+      timeoutSeconds: 5,
+    });
+    await assert.rejects(
+      () => secured.queryLogs(datasource, new URLSearchParams(), null),
+      (error: Error) => !error.message.includes(encoded),
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('нестроковая причина сбоя Grafana сохраняет класс ошибки', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => Promise.reject(null)) as typeof fetch;
+  try {
+    await assert.rejects(
+      () => client().queryLogs(datasource, new URLSearchParams(), null),
+      (error: Error & { errorClass?: string }) => error.errorClass === 'upstream_error',
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
 
 test('нечитаемая строка не прерывает разбор и считается', async () => {
   const restore = stubFetch('{"_time":"1"}\nне json\n{"_time":"2"}\n');
@@ -212,8 +294,7 @@ test('таймаут при чтении тела даёт timeout_client и с�
 
 test('код 200 у field_values с телом не JSON — upstream_error с телом ответа целиком', async () => {
   const original = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response('не json вовсе', { status: 200 })) as unknown as typeof fetch;
+  globalThis.fetch = (async () => new Response('не json вовсе', { status: 200 })) as unknown as typeof fetch;
   try {
     await assert.rejects(
       () => client().fieldValues(datasource, new URLSearchParams()),
